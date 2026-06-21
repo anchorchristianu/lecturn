@@ -1,0 +1,21 @@
+# Netlify configuration for Lectern
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  node_bundler = "esbuild"
+  # Shared code lives in netlify/functions/lib and is bundled automatically.
+
+# Friendly API paths -> serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Single-page-app fallback (must come AFTER the /api rule)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

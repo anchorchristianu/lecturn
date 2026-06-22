@@ -1,0 +1,24 @@
+# Repo-root netlify.toml — controls everything from the repository so the
+# Netlify UI "Base directory" setting can no longer break the build.
+# The app lives in the /lectern subfolder, declared here as the base.
+
+[build]
+  base = "lectern"
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Friendly API paths -> serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Single-page-app fallback (must come AFTER the /api rule)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

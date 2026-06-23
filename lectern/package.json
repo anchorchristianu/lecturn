@@ -11,6 +11,8 @@
     "netlify-dev": "netlify dev"
   },
   "dependencies": {
+    "mammoth": "^1.8.0",
+    "pdfjs-dist": "^4.7.76",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

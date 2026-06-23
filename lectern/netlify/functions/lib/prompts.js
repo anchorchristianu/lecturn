@@ -119,11 +119,20 @@ export function shapeOutline({ brief, voiceSample, outline, sources }) {
   const system = projectContext({ brief, voiceSample }) +
     `\n\nYou are shaping the book's structure. Propose a clean working outline ` +
     `that fits the material the author has actually produced, and name what is ` +
-    `promised by the brief but not yet covered. Suggest; do not dictate.`;
+    `promised by the brief but not yet covered. Suggest; do not dictate.\n\n` +
+    `Some material is marked [STRUCTURE] — these are the author's existing ` +
+    `outlines, frameworks, or series/lecture notes. Treat them as scaffolding: ` +
+    `let them strongly guide the chapter order, groupings, and any framework or ` +
+    `acronym the author already uses. Do not flatten that structure; build on it.`;
 
+  const isStructural = (t) => /outline|framework|notes/i.test(t || "");
   const filed = (sources || [])
-    .map((s) => `- "${s.title}" (${s.type}) — ${s.summary || "unsorted"}${s.stories?.length ? ` | stories: ${s.stories.join("; ")}` : ""}`)
-    .join("\n") || "(no sources yet)";
+    .map((s) =>
+      isStructural(s.type) && s.text
+        ? `[STRUCTURE] "${s.title}" (${s.type}) — the author's own framework/outline:\n${s.text}`
+        : `- "${s.title}" (${s.type}) — ${s.summary || "unsorted"}${s.stories?.length ? ` | stories: ${s.stories.join("; ")}` : ""}`
+    )
+    .join("\n\n") || "(no sources yet)";
 
   const currentOutline = (outline || []).map((c, i) => `${i + 1}. ${c.chapter} — ${c.purpose || ""}`).join("\n") || "(none)";
 
@@ -167,21 +176,30 @@ Return ONLY valid JSON:
 }
 
 // DRAFT → assemble a chapter in the author's voice, from their material only.
+// Framework/outline sources shape the structure; narrative sources supply prose.
 export function draftChapter({ brief, voiceSample, chapter, sources }) {
-  const system = projectContext({ brief, voiceSample }) +
-    `\n\nWrite a chapter draft. Use ONLY the material provided. You may reorder, ` +
-    `compress, smooth, and bridge between pieces, but every story, claim, and ` +
-    `idea must come from the author's own words. Where a transition needs ` +
-    `something that isn't there, write [GAP: ...] rather than inventing it. The ` +
-    `draft should sound like the author on their best day — not like an article.`;
+  const isStructural = (t) => /outline|framework|notes/i.test(t || "");
+  const all = sources || [];
+  const framework = all.filter((s) => isStructural(s.type));
+  const narrative = all.filter((s) => !isStructural(s.type));
 
-  const material = (sources || []).map((s) => `### Source: "${s.title}" (${s.type})\n${s.text}`).join("\n\n") || "(no material — do not invent; return a short note saying the chapter has no source material yet)";
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nWrite a chapter draft. The prose must come ONLY from the NARRATIVE ` +
+    `material — every story, claim, and idea is the author's own words; never ` +
+    `invent. If FRAMEWORK/OUTLINE material is provided, use it ONLY to decide the ` +
+    `chapter's structure, sequence, and which points to hit — do NOT reproduce the ` +
+    `outline as prose. Where the framework calls for a point the narrative doesn't ` +
+    `cover, write [GAP: ...] instead of inventing it. The draft should sound like ` +
+    `the author on their best day, not like an article.`;
+
+  const fw = framework.map((s) => `### Framework: "${s.title}"\n${s.text}`).join("\n\n");
+  const narr = narrative.map((s) => `### Source: "${s.title}" (${s.type})\n${s.text}`).join("\n\n");
 
   const user = `Draft the chapter titled "${chapter.chapter}".
 Its job: ${chapter.purpose || "(unspecified)"}
 
-MATERIAL TO WORK FROM (use nothing outside this):
-${material}
+${fw ? `STRUCTURE TO FOLLOW (organize the chapter by this; do NOT quote it verbatim):\n${fw}\n\n` : ""}NARRATIVE MATERIAL — write the prose from this, in the author's voice:
+${narr || "(no narrative material yet — if a framework is present, lay out a skeleton that follows it with [GAP: ...] markers where stories are needed; otherwise return a note that the chapter has no material yet)"}
 
 Return ONLY valid JSON:
 {

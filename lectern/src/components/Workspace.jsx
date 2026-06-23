@@ -2,9 +2,10 @@ import { useState } from "react";
 import StageRail from "./StageRail.jsx";
 import DraftView from "./DraftView.jsx";
 import { post, ai } from "../api.js";
+import { extractTextFromFile } from "../extract.js";
 import { countGaps, readingTime, fmt } from "../metrics.js";
 
-const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article"];
+const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
 
 // Small inline spinner + label, reused on buttons and cards.
 const Spin = ({ children }) => (
@@ -76,7 +77,16 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   // ---- shape ----
   async function shape() {
     await run("Shaping the outline", async () => {
-      const summarized = sources.map((s) => ({ title: s.title, type: s.type, summary: s.summary, stories: s.stories }));
+      const isStructural = (t) => /outline|framework|notes/i.test(t || "");
+      const summarized = sources.map((s) => ({
+        title: s.title,
+        type: s.type,
+        summary: s.summary,
+        stories: s.stories,
+        // Send the actual outline text for framework sources (truncated) so the
+        // shape step can follow the author's own structure even before filing.
+        text: isStructural(s.type) ? (s.text || "").slice(0, 4000) : undefined,
+      }));
       const r = await ai("shape", { ...ctx, outline: project.outline, sources: summarized });
       await post({ op: "updateProject", project: { ...project, outline: r.outline || project.outline, gaps: r.gaps || [] } });
       await onReload();
@@ -170,7 +180,9 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
           {sources.map((s) => (
             <div key={s.id} className="card source-item">
               <div className="body">
-                <span className="kind">{s.type}</span>
+                <span className="kind" style={/outline|framework|notes/i.test(s.type) ? { color: "var(--pine)" } : undefined}>
+                  {/outline|framework|notes/i.test(s.type) ? "▣ framework · " : ""}{s.type}
+                </span>
                 <h3>{s.title}</h3>
                 <p className="muted" style={{ fontSize: "0.82rem", margin: "0.1rem 0 0" }}>
                   {fmt(s.words || 0)} words · ~{readingTime(s.words || 0)} min
@@ -179,6 +191,8 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                   <p className="summary"><Spin>{busy.label}…</Spin></p>
                 ) : s.summary ? (
                   <p className="summary">{s.summary}</p>
+                ) : /outline|framework|notes/i.test(s.type) ? (
+                  <p className="summary">Used as structural scaffolding — guides chapter order and the framework, not drafted as prose.</p>
                 ) : (
                   <p className="summary">Not filed yet — file it so the coach knows what's in it.</p>
                 )}
@@ -377,13 +391,47 @@ function AddSource({ onSave, onClose, working, busyLabel }) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState(SOURCE_TYPES[0]);
   const [text, setText] = useState("");
+  const [extracting, setExtracting] = useState("");   // filename being read
+  const [fileErr, setFileErr] = useState("");
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";            // allow re-picking the same file
+    if (!file) return;
+    setFileErr(""); setExtracting(file.name);
+    try {
+      const extracted = await extractTextFromFile(file);
+      setText((prev) => (prev.trim() ? prev + "\n\n" + extracted : extracted));
+      if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ""));
+      // Outlines/notes usually carry structure — default the type accordingly.
+      if (/outline|notes|framework|lecture|sermon/i.test(file.name)) setType("outline / framework");
+    } catch (err) {
+      setFileErr(String(err.message || err));
+    } finally {
+      setExtracting("");
+    }
+  }
+
+  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+
   return (
-    <div className="scrim" onClick={() => !working && onClose()}>
+    <div className="scrim" onClick={() => !working && !extracting && onClose()}>
       <div className="modal stack" onClick={(e) => e.stopPropagation()}>
         <h2>Add material</h2>
+
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Upload a file <span className="hint" style={{ display: "inline" }}>(PDF, Word .docx, .txt, .md)</span></label>
+          <span className="hint">Series outlines, lecture notes, sermon manuscripts — great for giving the book its structure.</span>
+          <label className="btn btn-secondary" style={{ display: "inline-flex", cursor: extracting ? "default" : "pointer" }}>
+            {extracting ? <Spin>Reading {extracting}…</Spin> : "Choose a file"}
+            <input type="file" accept=".pdf,.docx,.txt,.md" onChange={handleFile} disabled={!!extracting || working} style={{ display: "none" }} />
+          </label>
+          {fileErr && <p className="summary" style={{ color: "var(--danger)" }}>{fileErr}</p>}
+        </div>
+
         <div className="field" style={{ marginBottom: 0 }}>
           <label>Give it a name</label>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Morning walk — the Quito years" disabled={working} />
+          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. GROW series — session outlines" disabled={working} />
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
           <label>What kind?</label>
@@ -392,15 +440,16 @@ function AddSource({ onSave, onClose, working, busyLabel }) {
           </select>
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
-          <label>Paste the transcript</label>
-          <span className="hint">From iPhone Voice Memos, YouTube captions, or any text.</span>
-          <textarea className="textarea" value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 200 }} disabled={working} />
+          <label>Text {wordCount > 0 && <span className="hint" style={{ display: "inline" }}>· {wordCount.toLocaleString()} words</span>}</label>
+          <span className="hint">Paste here, or upload a file above to fill this in. You can edit or trim it before adding.</span>
+          <textarea className="textarea" value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 200 }} disabled={working || !!extracting} />
         </div>
+
         <div className="row">
-          <button className="btn btn-primary" disabled={working || !text.trim()} onClick={() => onSave({ title, type, text })}>
+          <button className="btn btn-primary" disabled={working || !!extracting || !text.trim()} onClick={() => onSave({ title, type, text })}>
             {working ? <Spin>{busyLabel}…</Spin> : "Add to book"}
           </button>
-          <button className="btn btn-ghost" onClick={onClose} disabled={working}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={working || !!extracting}>Cancel</button>
         </div>
       </div>
     </div>

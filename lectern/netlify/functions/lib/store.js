@@ -24,12 +24,8 @@ const pKey = (uid, id) => `${uid}__${id}`;
 
 export async function listProjects(uid) {
   const { blobs } = await projects().list({ prefix: `${uid}__` });
-  const out = [];
-  for (const b of blobs) {
-    const p = await projects().get(b.key, { type: "json" });
-    if (p) out.push(p);
-  }
-  return out.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  const items = await Promise.all(blobs.map((b) => projects().get(b.key, { type: "json" })));
+  return items.filter(Boolean).sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 }
 export const getProject = (uid, id) => projects().get(pKey(uid, id), { type: "json" });
 export async function putProject(uid, p) {
@@ -47,12 +43,8 @@ export async function deleteProject(uid, id) {
 // ---- sources ----
 export async function listSources(uid, projectId) {
   const { blobs } = await sources().list({ prefix: `${uid}__${projectId}__` });
-  const out = [];
-  for (const b of blobs) {
-    const s = await sources().get(b.key, { type: "json" });
-    if (s) out.push(s);
-  }
-  return out.sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+  const items = await Promise.all(blobs.map((b) => sources().get(b.key, { type: "json" })));
+  return items.filter(Boolean).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 }
 export async function putSource(uid, s) {
   await sources().setJSON(`${uid}__${s.projectId}__${s.id}`, s);
@@ -63,12 +55,8 @@ export const deleteSource = (uid, projectId, id) => sources().delete(`${uid}__${
 // ---- drafts ----
 export async function listDrafts(uid, projectId) {
   const { blobs } = await drafts().list({ prefix: `${uid}__${projectId}__` });
-  const out = [];
-  for (const b of blobs) {
-    const d = await drafts().get(b.key, { type: "json" });
-    if (d) out.push(d);
-  }
-  return out;
+  const items = await Promise.all(blobs.map((b) => drafts().get(b.key, { type: "json" })));
+  return items.filter(Boolean);
 }
 export async function putDraft(uid, d) {
   d.updatedAt = new Date().toISOString();

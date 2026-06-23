@@ -72,7 +72,11 @@ export default async (req) => {
             text: cleaned,
             hash,
             words: countWords(cleaned),
-            summary: "", themes: [], chapters: [], stories: [], suggestedChapter: "",
+            summary: body.source.summary || "",
+            themes: body.source.themes || [],
+            chapters: body.source.chapters || [],
+            stories: body.source.stories || [],
+            suggestedChapter: "",
             createdAt: new Date().toISOString(),
           };
           await putSource(uid, s);

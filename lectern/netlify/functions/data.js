@@ -113,6 +113,8 @@ export default async (req) => {
             words: countWords(text.replace(/\[\^fn_[a-z0-9]+\]/g, "")),
             notes: body.draft.notes || [],
             footnotes: body.draft.footnotes || [],
+            flags: body.draft.flags || [],
+            factcheckSummary: body.draft.factcheckSummary || "",
             polished: body.draft.polished || false,
             version: (body.draft.version || 0) + 1,
           };

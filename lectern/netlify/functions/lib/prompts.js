@@ -363,9 +363,15 @@ const EDIT_LEVELS = {
       `recognize a LIKELY error (a misattributed name, a commonly-misquoted figure), you ` +
       `may note the likely correction — but ALWAYS frame it as "verify," never as a ` +
       `confident fix. Do NOT flag ordinary statements of faith, devotion, or theological ` +
-      `conviction — flag checkable facts, not matters of belief. Be thorough: a dense ` +
-      `paragraph may contain many flags. Put EVERYTHING in "flags" and return an empty ` +
-      `"suggestions" array.`,
+      `conviction — flag checkable facts, not matters of belief.\n\n` +
+      `SPLIT BUNCHED CLAIMS. If one sentence makes several checkable assertions (e.g., ` +
+      `"written over sixteen centuries by forty authors in three languages"), emit a ` +
+      `SEPARATE flag for EACH assertion, so each can be cited on its own. For every flag, ` +
+      `give an "anchor": the SHORTEST exact, verbatim substring from the draft after which ` +
+      `the citation marker should sit — normally the last few words of that specific claim ` +
+      `— so markers can be placed precisely, even several within one sentence. The anchor ` +
+      `must be copied character-for-character from the draft. Put EVERYTHING in "flags" and ` +
+      `return an empty "suggestions" array.`,
   },
 };
 
@@ -383,7 +389,7 @@ export function editPass({ brief, voiceSample, chapter, currentDraft, level, sty
     `do not include it.`;
 
   const flagsField = cfg.flags
-    ? `,\n  "flags": [ { "text": "the claim/quote/citation, quoted exactly", "concern": "what to verify and why", "category": "e.g. quote, name, statistic, date, scripture, scientific claim, historical claim" } ]`
+    ? `,\n  "flags": [ { "text": "the single claim, quoted", "anchor": "the SHORTEST exact verbatim substring from the draft to place the citation marker after — usually the end of this specific claim", "concern": "what to verify and why", "category": "e.g. quote, name, statistic, date, scripture, scientific claim, historical claim" } ]`
     : "";
 
   const tail = cfg.flagsOnly

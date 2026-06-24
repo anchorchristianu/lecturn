@@ -4,6 +4,7 @@ import DraftView from "./DraftView.jsx";
 import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
 import Footnotes from "./Footnotes.jsx";
+import Flags from "./Flags.jsx";
 import Spin from "./Spin.jsx";
 import { post, ai } from "../api.js";
 import { extractTextFromFile } from "../extract.js";
@@ -175,14 +176,54 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   async function addFootnoteFromFlag(flag, source) {
     await run("Adding the source", async () => {
       const id = newFootnoteId();
-      const placed = insertAfterAnchor(currentDraft.text, flag.text, id);
+      const anchor = flag.anchor || flag.text;
+      const placed = insertAfterAnchor(currentDraft.text, anchor, id);
       const footnotes = [...(currentDraft.footnotes || []), { id, source, claim: flag.text }];
+      // mark the originating flag (if persisted) as sourced
+      const flags = (currentDraft.flags || []).map((f) => (f.id === flag.id ? { ...f, status: "sourced", footnoteId: id } : f));
+      const patch = { ...currentDraft, footnotes, flags };
       if (placed) {
-        await saveDraftObj({ ...currentDraft, text: placed, footnotes });
+        await saveDraftObj({ ...patch, text: placed });
       } else {
-        await saveDraftObj({ ...currentDraft, footnotes });
+        await saveDraftObj(patch);
         setErr("Source saved, but I couldn't place the marker automatically (the wording had changed). It's listed under Notes as unplaced.");
       }
+    });
+  }
+
+  // ---- persistent fact-check flags ----
+  const newFlagId = () => "fl_" + Math.random().toString(36).slice(2, 9);
+  function mergeFlags(existing, fresh) {
+    const resolved = (existing || []).filter((f) => f.status === "sourced" || f.status === "dismissed");
+    const resolvedText = new Set(resolved.map((f) => (f.text || "").trim()));
+    const open = (fresh || [])
+      .filter((f) => !resolvedText.has((f.text || "").trim()))
+      .map((f) => ({ id: newFlagId(), status: "open", text: f.text, anchor: f.anchor || f.text, concern: f.concern, category: f.category }));
+    return [...resolved, ...open];
+  }
+  async function runFactcheck() {
+    await run("Fact-checking", async () => {
+      const r = await ai("edit_pass", {
+        ...ctx,
+        level: "factcheck",
+        chapter: chapterObj,
+        currentDraft: currentDraft.text,
+        styleGuide: project.styleGuide || "Chicago Manual of Style",
+      });
+      const flags = mergeFlags(currentDraft.flags, r.flags || []);
+      await saveDraftObj({ ...currentDraft, flags, factcheckSummary: r.summary || "" });
+    });
+  }
+  async function dismissFlag(flagId) {
+    await run("Updating", async () => {
+      const flags = (currentDraft.flags || []).map((f) => (f.id === flagId ? { ...f, status: "dismissed" } : f));
+      await saveDraftObj({ ...currentDraft, flags });
+    });
+  }
+  async function restoreFlag(flagId) {
+    await run("Updating", async () => {
+      const flags = (currentDraft.flags || []).map((f) => (f.id === flagId ? { ...f, status: "open" } : f));
+      await saveDraftObj({ ...currentDraft, flags });
     });
   }
   async function updateFootnote(id, source) {
@@ -483,6 +524,20 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                     onFormat={formatChicago}
                   />
 
+                  {(currentDraft.flags || []).length > 0 && (
+                    <Flags
+                      flags={currentDraft.flags}
+                      summary={currentDraft.factcheckSummary}
+                      working={working}
+                      checking={working && busy.label === "Fact-checking"}
+                      onAddSource={addFootnoteFromFlag}
+                      onDismiss={dismissFlag}
+                      onRestore={restoreFlag}
+                      onFormat={formatChicago}
+                      onRecheck={runFactcheck}
+                    />
+                  )}
+
                   <div className="card stack">
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Or tell the coach what to change</label>
@@ -517,7 +572,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                         <button className="btn btn-secondary" onClick={() => runPass("proof")} disabled={working}>
                           {working && busy.label === "Proofreading" ? <Spin>Proofreading…</Spin> : "Proofread"}
                         </button>
-                        <button className="btn btn-secondary" onClick={() => runPass("factcheck")} disabled={working} style={{ borderColor: "var(--brass)", color: "var(--brass)" }}>
+                        <button className="btn btn-secondary" onClick={runFactcheck} disabled={working} style={{ borderColor: "var(--brass)", color: "var(--brass)" }}>
                           {working && busy.label === "Fact-checking" ? <Spin>Fact-checking…</Spin> : "Fact-check"}
                         </button>
                       </div>

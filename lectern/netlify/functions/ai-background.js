@@ -1,11 +1,16 @@
 // netlify/functions/ai-background.js
 // The "-background" suffix makes this a Netlify Background Function: it returns
 // 202 immediately and may run up to 15 minutes — long enough for any AI step.
-// It writes the result to the "jobs" store; the client polls job.js for it.
+//
+// IMPORTANT: background functions are invoked ASYNCHRONOUSLY, which caps the
+// request payload at 256KB. So the client does NOT send the (large) job input
+// here — it stores the input via the 6MB sync endpoint and triggers this worker
+// with only { jobId }. We read the input from the jobs store, run the model, and
+// write the result back for the client to poll (job.js).
 
 import { ACTIONS } from "./lib/prompts.js";
 import { getUser } from "./lib/session.js";
-import { getStore } from "@netlify/blobs";
+import { getJob, putJob } from "./lib/store.js";
 
 const MODELS = {
   main: process.env.MODEL_MAIN || "claude-sonnet-4-6",
@@ -13,7 +18,6 @@ const MODELS = {
 };
 
 async function callClaude({ system, messages, model, maxTokens }) {
-  // Cache the per-project system context so repeated steps on a book are cheap.
   const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -46,28 +50,35 @@ export default async (req) => {
   try { body = await req.json(); } catch {}
   const u = getUser(req);
   const jobId = body.jobId;
-  const store = getStore("jobs");
-  const key = `${u ? u.uid : "anon"}__${jobId}`;
 
   try {
     if (!jobId) return new Response(null, { status: 400 });
-    if (!u) throw new Error("Not signed in");
-    if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set on the server.");
+    if (!u) return new Response(null, { status: 401 });
 
-    await store.setJSON(key, { status: "running", at: Date.now() });
+    const job = await getJob(u.uid, jobId);
+    if (!job) return new Response(null, { status: 202 });      // nothing queued
+    if (job.status === "done") return new Response(null, { status: 202 }); // retry guard
 
-    const build = ACTIONS[body.action];
-    if (!build) throw new Error(`Unknown action: ${body.action}`);
+    if (!process.env.ANTHROPIC_API_KEY) {
+      await putJob(u.uid, jobId, { status: "error", error: "ANTHROPIC_API_KEY is not set on the server." });
+      return new Response(null, { status: 202 });
+    }
 
-    const spec = build(body);
+    await putJob(u.uid, jobId, { ...job, status: "running" });
+
+    const build = ACTIONS[job.action];
+    if (!build) throw new Error(`Unknown action: ${job.action}`);
+
+    const spec = build(job.payload || {});
     const text = await callClaude(spec);
     const result = spec.json ? parseJson(text) : { text };
 
-    await store.setJSON(key, { status: "done", result });
+    await putJob(u.uid, jobId, { status: "done", result });
   } catch (err) {
-    try { await store.setJSON(key, { status: "error", error: String(err?.message || err) }); } catch {}
+    try {
+      if (u && jobId) await putJob(u.uid, jobId, { status: "error", error: String(err?.message || err) });
+    } catch {}
   }
 
-  // The client ignores this; it polls job.js for the stored result.
   return new Response(null, { status: 202 });
 };

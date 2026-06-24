@@ -1,7 +1,8 @@
 // netlify/functions/job.js — returns the status/result of a background AI job.
+// Only the status/result/error are returned (never the stored input payload),
+// so polling stays light.
 import { getUser } from "./lib/session.js";
-import { json } from "./lib/store.js";
-import { getStore } from "@netlify/blobs";
+import { json, getJob } from "./lib/store.js";
 
 export default async (req) => {
   const u = getUser(req);
@@ -12,10 +13,10 @@ export default async (req) => {
 
   let job = null;
   try {
-    job = await getStore("jobs").get(`${u.uid}__${id}`, { type: "json" });
+    job = await getJob(u.uid, id);
   } catch {
     job = null;
   }
-  // No record yet just means the background function hasn't written one — keep polling.
-  return json({ job: job || { status: "pending" } });
+  if (!job) return json({ job: { status: "pending" } });
+  return json({ job: { status: job.status, result: job.result, error: job.error } });
 };

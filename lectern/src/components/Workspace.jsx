@@ -4,7 +4,7 @@ import DraftView from "./DraftView.jsx";
 import DevReview from "./DevReview.jsx";
 import { post, ai } from "../api.js";
 import { extractTextFromFile } from "../extract.js";
-import { countGaps, readingTime, fmt } from "../metrics.js";
+import { countWords, countGaps, readingTime, fmt } from "../metrics.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
 
@@ -24,6 +24,8 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   const [selectedChapter, setSelectedChapter] = useState(project.outline?.[0]?.chapter || "");
   const [interviewQs, setInterviewQs] = useState({});
   const [feedback, setFeedback] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
 
   const run = async (label, fn, id = "") => {
     setErr(""); setBusy({ label, id });
@@ -130,6 +132,20 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
       const r = await ai("polish", { ...ctx, chapter: chapterObj, currentDraft: currentDraft.text });
       await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
       await onReload();
+    });
+  }
+
+  // ---- direct editing (type your own changes) ----
+  function startEdit() { setEditText(currentDraft?.text || ""); setEditing(true); }
+  function startBlank() { setEditText(""); setEditing(true); }
+  function cancelEdit() { setEditing(false); setEditText(""); }
+  async function saveEdit() {
+    await run("Saving your edits", async () => {
+      const base = currentDraft || { projectId: project.id, chapter: chapterObj.chapter, notes: [], version: 0 };
+      await post({ op: "saveDraft", draft: { ...base, text: editText } });
+      await onReload();
+      setEditing(false);
+      setEditText("");
     });
   }
 
@@ -302,17 +318,46 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
             <>
               <div className="field" style={{ marginBottom: 0 }}>
                 <label>Which chapter?</label>
-                <select value={selectedChapter} onChange={(e) => setSelectedChapter(e.target.value)} disabled={working}>
+                <select value={selectedChapter} onChange={(e) => setSelectedChapter(e.target.value)} disabled={working || editing}>
                   {project.outline.map((c) => <option key={c.chapter}>{c.chapter}</option>)}
                 </select>
               </div>
 
-              {!currentDraft ? (
-                <div className="card center">
-                  <p className="muted">No draft yet for this chapter.</p>
-                  <button className="btn btn-primary btn-lg" onClick={draftChapter} disabled={working}>
-                    {working ? <Spin>{busy.label}…</Spin> : "Draft this chapter in your voice"}
-                  </button>
+              {editing ? (
+                <div className="card stack">
+                  <div className="row">
+                    <label style={{ fontWeight: 600, margin: 0 }}>Editing: {chapterObj.chapter}</label>
+                    <span className="spacer" />
+                    <span className="muted" style={{ fontSize: "0.85rem" }}>{fmt(countWords(editText))} words</span>
+                  </div>
+                  <textarea
+                    className="textarea"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    style={{ minHeight: 440, fontFamily: "var(--display)", fontSize: "1.12rem", lineHeight: 1.7 }}
+                    disabled={working}
+                    autoFocus
+                  />
+                  <span className="hint">
+                    Type your changes directly. Paragraphs are separated by a blank line; <code>## </code> starts a heading.
+                    Replace a <span className="gap">[GAP: …]</span> by writing the missing piece and deleting the marker.
+                  </span>
+                  <div className="row">
+                    <button className="btn btn-primary" onClick={saveEdit} disabled={working}>
+                      {working ? <Spin>Saving…</Spin> : "Save edits"}
+                    </button>
+                    <button className="btn btn-ghost" onClick={cancelEdit} disabled={working}>Cancel</button>
+                  </div>
+                </div>
+              ) : !currentDraft ? (
+                <div className="card center stack">
+                  <p className="muted" style={{ margin: 0 }}>No draft yet for this chapter.</p>
+                  <div className="row" style={{ justifyContent: "center" }}>
+                    <button className="btn btn-primary btn-lg" onClick={draftChapter} disabled={working}>
+                      {working ? <Spin>{busy.label}…</Spin> : "Draft this chapter in your voice"}
+                    </button>
+                    <button className="btn btn-secondary btn-lg" onClick={startBlank} disabled={working}>Write it myself</button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -324,19 +369,23 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                   )}
 
                   <div className="card">
-                    <p className="muted" style={{ fontSize: "0.85rem", marginTop: 0 }}>
-                      {fmt(currentDraft.words || 0)} words · ~{readingTime(currentDraft.words || 0)} min ·{" "}
-                      {countGaps(currentDraft.text) > 0
-                        ? <span style={{ color: "var(--brass)" }}>{countGaps(currentDraft.text)} gap(s) to fill</span>
-                        : "no open gaps"}
-                      {currentDraft.polished && " · polished"}
-                    </p>
+                    <div className="row" style={{ marginBottom: "0.7rem" }}>
+                      <p className="muted" style={{ fontSize: "0.85rem", margin: 0 }}>
+                        {fmt(currentDraft.words || 0)} words · ~{readingTime(currentDraft.words || 0)} min ·{" "}
+                        {countGaps(currentDraft.text) > 0
+                          ? <span style={{ color: "var(--brass)" }}>{countGaps(currentDraft.text)} gap(s) to fill</span>
+                          : "no open gaps"}
+                        {currentDraft.polished && " · polished"}
+                      </p>
+                      <span className="spacer" />
+                      <button className="btn btn-secondary" onClick={startEdit} disabled={working}>✎ Edit directly</button>
+                    </div>
                     <DraftView text={currentDraft.text} />
                   </div>
 
                   <div className="card stack">
                     <div className="field" style={{ marginBottom: 0 }}>
-                      <label>Tell the coach what to change</label>
+                      <label>Or tell the coach what to change</label>
                       <span className="hint">Talk back to it: "cut the second story," "add what the river taught me," "warmer opening."</span>
                       <textarea className="textarea" value={feedback} onChange={(e) => setFeedback(e.target.value)} style={{ minHeight: 90 }} disabled={working} />
                     </div>

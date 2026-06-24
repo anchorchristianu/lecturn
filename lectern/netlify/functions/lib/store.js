@@ -9,8 +9,13 @@ const users = () => getStore("users");
 const projects = () => getStore("projects");
 const sources = () => getStore("sources");
 const drafts = () => getStore("drafts");
+const jobs = () => getStore("jobs");
 
 const b64 = (s) => Buffer.from(s).toString("base64url");
+
+// ---- background jobs ----
+export const putJob = (uid, jobId, data) => jobs().setJSON(`${uid}__${jobId}`, data);
+export const getJob = (uid, jobId) => jobs().get(`${uid}__${jobId}`, { type: "json" });
 
 // ---- users ----
 export const getUserByEmail = (email) => users().get(b64(email.toLowerCase()), { type: "json" });

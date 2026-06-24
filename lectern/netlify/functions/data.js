@@ -2,7 +2,7 @@
 import {
   listProjects, getProject, putProject, deleteProject,
   listSources, putSource, deleteSource,
-  listDrafts, putDraft, refreshCounts, json,
+  listDrafts, putDraft, refreshCounts, putJob, json,
 } from "./lib/store.js";
 import { getUser } from "./lib/session.js";
 import { cleanTranscript, tidyDraft, hashText, countWords } from "./lib/clean.js";
@@ -52,6 +52,18 @@ export default async (req) => {
         case "deleteProject":
           await deleteProject(uid, body.id);
           return json({ ok: true });
+
+        case "enqueueJob": {
+          // Store a (possibly large) AI job input here, on the 6MB sync path.
+          // The background worker is then triggered with only the job id.
+          await putJob(uid, body.jobId, {
+            status: "queued",
+            action: body.action,
+            payload: body.payload || {},
+            at: Date.now(),
+          });
+          return json({ ok: true });
+        }
 
         case "addSource": {
           const projectId = body.source.projectId;

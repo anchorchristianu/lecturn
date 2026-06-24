@@ -42,14 +42,19 @@ export const ai = async (action, payload) => {
     (typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID()) ||
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  // Kick off the background job (returns 202 immediately).
-  const res = await fetch("/.netlify/functions/ai-background", opts("POST", { jobId, action, ...payload }));
+  // 1) Store the (possibly large) input via the sync endpoint. Background
+  //    functions are invoked asynchronously, which caps the request body at
+  //    256KB, so we must NOT send the payload to the worker directly.
+  await post({ op: "enqueueJob", jobId, action, payload });
+
+  // 2) Trigger the background worker with only the id (tiny, well under the cap).
+  const res = await fetch("/.netlify/functions/ai-background", opts("POST", { jobId }));
   if (res.status !== 202 && !res.ok) {
     const d = await res.json().catch(() => ({}));
     throw new Error(d.error || `Couldn't start the AI step (${res.status}).`);
   }
 
-  // Poll for the result.
+  // 3) Poll for the result.
   const started = Date.now();
   const MAX_MS = 4 * 60 * 1000; // give up after 4 minutes
   let delay = 800;

@@ -77,6 +77,7 @@ export default function App() {
           <span className="tag">your voice, bound into books</span>
         </div>
         <div className="row" style={{ gap: "0.75rem" }}>
+          <a className="btn-ghost" href="/help.html" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>Help</a>
           <span className="muted" style={{ fontSize: "0.9rem" }}>{user.name || user.email}</span>
           <button className="btn-ghost" onClick={logout}>Sign out</button>
         </div>

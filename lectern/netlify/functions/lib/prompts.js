@@ -297,6 +297,90 @@ Return ONLY valid JSON in this shape:
   return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 4000, json: true };
 }
 
+// LEVELED EDITING PASSES → Line, Copy, Proof. Each returns discrete, approvable
+// suggestions (verbatim original → replacement + why) rather than a silent
+// rewrite, so the author keeps control. Autonomy scales INVERSELY with the level:
+// proofreading is near-mechanical; line editing is the most voice-sensitive and
+// the most conservative about suggesting at all.
+const EDIT_LEVELS = {
+  line: {
+    model: "main",
+    focus:
+      `LINE EDITING — the level of style, voice, and rhythm. Improve prose ` +
+      `sentence by sentence: strengthen weak verbs, cut redundancy and filler, ` +
+      `smooth awkward rhythm, sharpen vague wording, fix clumsy transitions.\n\n` +
+      `VOICE IS SACRED. This author has a specific way of sounding (see the voice ` +
+      `sample). Your job is to make the writing the BEST VERSION OF ITSELF, not a ` +
+      `generic "well-written" paragraph. Do NOT flatten idiom, cadence, or personality ` +
+      `into neutral prose. Do NOT swap the author's natural word for a fancier one. ` +
+      `If a sentence is merely different from how you'd write it but is clear and ` +
+      `alive in the author's voice, LEAVE IT. Be selective: a handful of genuinely ` +
+      `high-value suggestions beats marking up every line. When in doubt, suggest nothing. ` +
+      `Never change meaning, never add content, and keep every [GAP: ...] marker untouched.`,
+    flags: false,
+  },
+  copy: {
+    model: "main",
+    focus:
+      `COPYEDITING — the level of technical correctness and consistency, NOT style. ` +
+      `Fix grammar, punctuation, spelling, capitalization, verb tense agreement, ` +
+      `number and hyphenation consistency, and bring the text into line with the ` +
+      `{STYLE} style guide. Do NOT rewrite for flow or rhythm — that is line editing, ` +
+      `not your job here. Change nothing about voice or meaning.\n\n` +
+      `DO NOT fact-check by asserting. When you encounter a factual claim, a quotation, ` +
+      `a statistic, a date, a name, a scripture reference, or a citation, do NOT "correct" ` +
+      `it and do NOT vouch for it — instead add it to "flags" so the author can verify it ` +
+      `against the source. Getting a misremembered quote or scripture reference "corrected" ` +
+      `to something equally wrong is worse than leaving it flagged.`,
+    flags: true,
+  },
+  proof: {
+    model: "sort",
+    focus:
+      `PROOFREADING — the final, lightest, most conservative pass. Catch only surface ` +
+      `errors: typos, misspellings, doubled words, double spaces, missing or stray ` +
+      `punctuation, inconsistent or curly/straight quotation marks, obvious formatting ` +
+      `slips. Do NOT rephrase, restyle, or "improve" anything — if it is not an outright ` +
+      `error, leave it exactly as it is. No content or meaning changes.`,
+    flags: false,
+  },
+};
+
+export function editPass({ brief, voiceSample, chapter, currentDraft, level, styleGuide }) {
+  const cfg = EDIT_LEVELS[level] || EDIT_LEVELS.line;
+  const focus = cfg.focus.replace("{STYLE}", styleGuide || "Chicago Manual of Style");
+
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou are a professional editor doing ONE specific pass on a single chapter. ` +
+    focus +
+    `\n\nReturn discrete, reviewable suggestions — the author will accept or reject ` +
+    `each one, so each must stand alone. CRITICAL: in "original", quote the text to be ` +
+    `changed EXACTLY as it appears in the draft — verbatim, character for character, ` +
+    `long enough to be unique but no longer than needed. If you cannot quote it exactly, ` +
+    `do not include it.`;
+
+  const flagsField = cfg.flags
+    ? `,\n  "flags": [ { "text": "the claim/quote/citation, quoted", "concern": "what to verify and why" } ]`
+    : "";
+
+  const user = `Chapter: "${chapter.chapter}"${chapter.purpose ? ` — ${chapter.purpose}` : ""}
+
+Do the ${level} pass on the draft below. Return ONLY valid JSON in this shape:
+{
+  "summary": "1-2 plain sentences: what you found and the overall state of the prose at this level",
+  "suggestions": [
+    { "original": "verbatim text from the draft", "replacement": "the proposed text", "why": "short, concrete reason", "category": "e.g. grammar, punctuation, spelling, word choice, rhythm, redundancy, consistency" }
+  ]${flagsField}
+}
+
+If the chapter is already clean at this level, return an empty "suggestions" array and say so in the summary.
+
+DRAFT:
+"""${currentDraft}"""`;
+
+  return { system, messages: [{ role: "user", content: user }], model: cfg.model, maxTokens: 6000, json: true };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -306,4 +390,5 @@ export const ACTIONS = {
   refine: (p) => refineDraft(p),
   polish: (p) => polishDraft(p),
   developmental_review: (p) => developmentalReview(p),
+  edit_pass: (p) => editPass(p),
 };

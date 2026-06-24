@@ -2,16 +2,13 @@ import { useState } from "react";
 import StageRail from "./StageRail.jsx";
 import DraftView from "./DraftView.jsx";
 import DevReview from "./DevReview.jsx";
+import EditPass from "./EditPass.jsx";
+import Spin from "./Spin.jsx";
 import { post, ai } from "../api.js";
 import { extractTextFromFile } from "../extract.js";
 import { countWords, countGaps, readingTime, fmt } from "../metrics.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
-
-// Small inline spinner + label, reused on buttons and cards.
-const Spin = ({ children }) => (
-  <span className="working"><span className="spinner" /> {children}</span>
-);
 
 export default function Workspace({ project, sources, drafts, onReload, onBack, onDeleted }) {
   const [tab, setTab] = useState("sources");
@@ -26,6 +23,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   const [feedback, setFeedback] = useState("");
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
+  const [activePass, setActivePass] = useState(null);
 
   const run = async (label, fn, id = "") => {
     setErr(""); setBusy({ label, id });
@@ -146,6 +144,45 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
       await onReload();
       setEditing(false);
       setEditText("");
+    });
+  }
+
+  // ---- leveled editing passes (line / copy / proof) ----
+  const PASS_LABEL = { line: "Line editing", copy: "Copy editing", proof: "Proofreading" };
+  async function runPass(level) {
+    setActivePass(null);
+    await run(PASS_LABEL[level], async () => {
+      const r = await ai("edit_pass", {
+        ...ctx,
+        level,
+        chapter: chapterObj,
+        currentDraft: currentDraft.text,
+        styleGuide: project.styleGuide || "Chicago Manual of Style",
+      });
+      setActivePass({ level, runId: Date.now(), summary: r.summary, suggestions: r.suggestions || [], flags: r.flags || [] });
+    });
+  }
+  async function applyPass(accepted) {
+    await run("Applying changes", async () => {
+      let text = currentDraft.text;
+      let applied = 0;
+      let missed = 0;
+      for (const s of accepted) {
+        if (s.original && text.includes(s.original)) {
+          text = text.replace(s.original, () => s.replacement); // function form: no $-pattern surprises
+          applied++;
+        } else {
+          missed++;
+        }
+      }
+      if (applied > 0) {
+        await post({ op: "saveDraft", draft: { ...currentDraft, text } });
+        await onReload();
+      }
+      setActivePass(null);
+      if (missed > 0) {
+        setErr(`Applied ${applied} change${applied === 1 ? "" : "s"}. ${missed} couldn't be matched (the text had changed) and ${missed === 1 ? "was" : "were"} skipped.`);
+      }
     });
   }
 
@@ -318,7 +355,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
             <>
               <div className="field" style={{ marginBottom: 0 }}>
                 <label>Which chapter?</label>
-                <select value={selectedChapter} onChange={(e) => setSelectedChapter(e.target.value)} disabled={working || editing}>
+                <select value={selectedChapter} onChange={(e) => { setActivePass(null); setSelectedChapter(e.target.value); }} disabled={working || editing}>
                   {project.outline.map((c) => <option key={c.chapter}>{c.chapter}</option>)}
                 </select>
               </div>
@@ -393,12 +430,36 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                       <button className="btn btn-primary" onClick={reviseChapter} disabled={working || !feedback.trim()}>
                         {working && busy.label === "Revising" ? <Spin>Revising…</Spin> : "Revise"}
                       </button>
-                      <button className="btn btn-secondary" onClick={polishChapter} disabled={working}>
-                        {working && busy.label === "Polishing" ? <Spin>Polishing…</Spin> : "Polish (light pass)"}
-                      </button>
                       <button className="btn btn-ghost" onClick={draftChapter} disabled={working}>Re-draft from scratch</button>
                     </div>
                   </div>
+
+                  {activePass ? (
+                    <EditPass pass={activePass} working={working} onApply={applyPass} onClose={() => setActivePass(null)} />
+                  ) : (
+                    <div className="card stack">
+                      <div>
+                        <h3 style={{ margin: "0 0 0.2rem" }}>Editing passes</h3>
+                        <span className="hint">
+                          Professional editing, one level at a time, applied top to bottom. Each pass proposes changes you accept or reject — nothing happens to your words unless you say so.
+                        </span>
+                      </div>
+                      <div className="row">
+                        <button className="btn btn-secondary" onClick={() => runPass("line")} disabled={working}>
+                          {working && busy.label === "Line editing" ? <Spin>Line editing…</Spin> : "Line edit"}
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => runPass("copy")} disabled={working}>
+                          {working && busy.label === "Copy editing" ? <Spin>Copy editing…</Spin> : "Copy edit"}
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => runPass("proof")} disabled={working}>
+                          {working && busy.label === "Proofreading" ? <Spin>Proofreading…</Spin> : "Proofread"}
+                        </button>
+                      </div>
+                      <span className="muted" style={{ fontSize: "0.8rem" }}>
+                        Line = style &amp; voice · Copy = grammar, consistency, fact-flagging · Proof = final typos. Settle the structure first (see <b>Review</b>) before polishing sentences.
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </>

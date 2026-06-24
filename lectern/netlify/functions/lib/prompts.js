@@ -326,13 +326,9 @@ const EDIT_LEVELS = {
       `Fix grammar, punctuation, spelling, capitalization, verb tense agreement, ` +
       `number and hyphenation consistency, and bring the text into line with the ` +
       `{STYLE} style guide. Do NOT rewrite for flow or rhythm — that is line editing, ` +
-      `not your job here. Change nothing about voice or meaning.\n\n` +
-      `DO NOT fact-check by asserting. When you encounter a factual claim, a quotation, ` +
-      `a statistic, a date, a name, a scripture reference, or a citation, do NOT "correct" ` +
-      `it and do NOT vouch for it — instead add it to "flags" so the author can verify it ` +
-      `against the source. Getting a misremembered quote or scripture reference "corrected" ` +
-      `to something equally wrong is worse than leaving it flagged.`,
-    flags: true,
+      `not your job here. Change nothing about voice or meaning. Do NOT verify facts or ` +
+      `quotations here — a separate Fact-check pass handles that.`,
+    flags: false,
   },
   proof: {
     model: "sort",
@@ -343,6 +339,33 @@ const EDIT_LEVELS = {
       `slips. Do NOT rephrase, restyle, or "improve" anything — if it is not an outright ` +
       `error, leave it exactly as it is. No content or meaning changes.`,
     flags: false,
+  },
+  factcheck: {
+    model: "main",
+    flagsOnly: true,
+    flags: true,
+    focus:
+      `FACT-CHECK FLAGGING — your ONLY job is to find every checkable claim a careful ` +
+      `editor would want verified before publication, and flag it. Do NOT edit, reword, ` +
+      `or correct anything, and do NOT declare whether a claim is true or false. You are ` +
+      `building the author a verification checklist so nothing wrong reaches print.\n\n` +
+      `Scan the ENTIRE chapter and flag, comprehensively:\n` +
+      `- Direct quotations and anything attributed to a named person (verify the exact ` +
+      `wording AND that the person actually said it).\n` +
+      `- Names of people, books, organizations, and places (verify spelling and identity — ` +
+      `a wrong name is a common and embarrassing error).\n` +
+      `- Every number, statistic, probability, count, date, and span of time.\n` +
+      `- Every scripture or source citation (verify the reference actually points to the ` +
+      `content described).\n` +
+      `- Scientific, historical, and "this source predicted/proves X" claims — especially ` +
+      `ones commonly debated — so the author can attach a solid source.\n\n` +
+      `For each item, quote the exact claim and say specifically what to verify. If you ` +
+      `recognize a LIKELY error (a misattributed name, a commonly-misquoted figure), you ` +
+      `may note the likely correction — but ALWAYS frame it as "verify," never as a ` +
+      `confident fix. Do NOT flag ordinary statements of faith, devotion, or theological ` +
+      `conviction — flag checkable facts, not matters of belief. Be thorough: a dense ` +
+      `paragraph may contain many flags. Put EVERYTHING in "flags" and return an empty ` +
+      `"suggestions" array.`,
   },
 };
 
@@ -360,20 +383,24 @@ export function editPass({ brief, voiceSample, chapter, currentDraft, level, sty
     `do not include it.`;
 
   const flagsField = cfg.flags
-    ? `,\n  "flags": [ { "text": "the claim/quote/citation, quoted", "concern": "what to verify and why" } ]`
+    ? `,\n  "flags": [ { "text": "the claim/quote/citation, quoted exactly", "concern": "what to verify and why", "category": "e.g. quote, name, statistic, date, scripture, scientific claim, historical claim" } ]`
     : "";
+
+  const tail = cfg.flagsOnly
+    ? `If you find no checkable claims at all, return an empty "flags" array and say so in the summary.`
+    : `If the chapter is already clean at this level, return an empty "suggestions" array and say so in the summary.`;
 
   const user = `Chapter: "${chapter.chapter}"${chapter.purpose ? ` — ${chapter.purpose}` : ""}
 
 Do the ${level} pass on the draft below. Return ONLY valid JSON in this shape:
 {
-  "summary": "1-2 plain sentences: what you found and the overall state of the prose at this level",
+  "summary": "1-2 plain sentences: what you found and the overall state at this level",
   "suggestions": [
     { "original": "verbatim text from the draft", "replacement": "the proposed text", "why": "short, concrete reason", "category": "e.g. grammar, punctuation, spelling, word choice, rhythm, redundancy, consistency" }
   ]${flagsField}
 }
 
-If the chapter is already clean at this level, return an empty "suggestions" array and say so in the summary.
+${tail}
 
 DRAFT:
 """${currentDraft}"""`;

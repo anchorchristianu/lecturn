@@ -148,7 +148,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   }
 
   // ---- leveled editing passes (line / copy / proof) ----
-  const PASS_LABEL = { line: "Line editing", copy: "Copy editing", proof: "Proofreading" };
+  const PASS_LABEL = { line: "Line editing", copy: "Copy editing", proof: "Proofreading", factcheck: "Fact-checking" };
   async function runPass(level) {
     setActivePass(null);
     await run(PASS_LABEL[level], async () => {
@@ -454,9 +454,12 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                         <button className="btn btn-secondary" onClick={() => runPass("proof")} disabled={working}>
                           {working && busy.label === "Proofreading" ? <Spin>Proofreading…</Spin> : "Proofread"}
                         </button>
+                        <button className="btn btn-secondary" onClick={() => runPass("factcheck")} disabled={working} style={{ borderColor: "var(--brass)", color: "var(--brass)" }}>
+                          {working && busy.label === "Fact-checking" ? <Spin>Fact-checking…</Spin> : "Fact-check"}
+                        </button>
                       </div>
                       <span className="muted" style={{ fontSize: "0.8rem" }}>
-                        Line = style &amp; voice · Copy = grammar, consistency, fact-flagging · Proof = final typos. Settle the structure first (see <b>Review</b>) before polishing sentences.
+                        Line = style &amp; voice · Copy = grammar &amp; consistency · Proof = final typos · Fact-check = flags quotes, names, numbers &amp; scripture refs to verify. Settle the structure first (see <b>Review</b>) before polishing sentences.
                       </span>
                     </div>
                   )}

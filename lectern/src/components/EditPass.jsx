@@ -7,14 +7,16 @@ import Spin from "./Spin.jsx";
 
 const LABELS = {
   line: { title: "Line edit", note: "Style, rhythm, and word choice — in your voice. Suggestions only; nothing changes until you apply it." },
-  copy: { title: "Copy edit", note: "Grammar, punctuation, spelling, and consistency. Facts, quotes, and references are flagged for you to verify, not changed." },
+  copy: { title: "Copy edit", note: "Grammar, punctuation, spelling, and consistency. Mechanical fixes only." },
   proof: { title: "Proofread", note: "Final surface pass — typos, spacing, and punctuation only." },
+  factcheck: { title: "Fact-check", note: "Every checkable claim — quotes, names, numbers, dates, scripture references — gathered for you to verify. Nothing is changed; these are yours to confirm against the source." },
 };
 
 export default function EditPass({ pass, working, onApply, onClose }) {
   const meta = LABELS[pass.level] || LABELS.line;
   const suggestions = pass.suggestions || [];
   const flags = pass.flags || [];
+  const isFactcheck = pass.level === "factcheck";
   const [decisions, setDecisions] = useState(() => suggestions.map(() => "pending"));
 
   const set = (i, v) => setDecisions((d) => d.map((x, j) => (j === i ? (x === v ? "pending" : v) : x)));
@@ -22,6 +24,34 @@ export default function EditPass({ pass, working, onApply, onClose }) {
   const acceptedCount = decisions.filter((d) => d === "accept").length;
 
   const apply = () => onApply(suggestions.filter((_, i) => decisions[i] === "accept"));
+
+  // Fact-check is a verification checklist, not editable changes.
+  if (isFactcheck) {
+    return (
+      <div className="card stack" style={{ borderColor: "var(--brass)" }}>
+        <div className="row">
+          <h3 style={{ margin: 0 }}>{meta.title}</h3>
+          <span className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose} disabled={working}>Close</button>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>{meta.note}</p>
+        {pass.summary && <p style={{ margin: 0 }}>{pass.summary}</p>}
+        {flags.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>Nothing jumped out — but always double-check quotes, names, and numbers against your sources yourself.</p>
+        ) : (
+          <ul className="note-list" style={{ marginTop: 0 }}>
+            {flags.map((f, i) => (
+              <li key={i} style={{ marginBottom: "0.6rem" }}>
+                {f.category && <span className="status" style={{ marginRight: "0.45rem" }}>{f.category}</span>}
+                <span style={{ color: "var(--brass)", fontWeight: 600 }}>{f.text}</span>
+                {f.concern ? <span className="muted"> — {f.concern}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="card stack" style={{ borderColor: "var(--pine)" }}>

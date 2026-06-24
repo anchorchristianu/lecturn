@@ -10,6 +10,7 @@ import { post, ai } from "../api.js";
 import { extractTextFromFile } from "../extract.js";
 import { countWords, countGaps, readingTime, fmt } from "../metrics.js";
 import { newFootnoteId, numberMap, insertAfterAnchor, insertAt, removeMarker, reconcile } from "../footnotes.js";
+import { compileDocx, compileMarkdown, safeName } from "../compile.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
 
@@ -28,6 +29,8 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   const [editText, setEditText] = useState("");
   const [activePass, setActivePass] = useState(null);
   const editorRef = useRef(null);
+  const [exporting, setExporting] = useState("");
+  const [expOpts, setExpOpts] = useState({ gaps: true, breaks: true });
 
   const run = async (label, fn, id = "") => {
     setErr(""); setBusy({ label, id });
@@ -226,6 +229,40 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
       await saveDraftObj({ ...currentDraft, flags });
     });
   }
+
+  // ---- compile / export ----
+  function downloadBlob(filename, data, mime) {
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mime || "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  async function exportDocx() {
+    setErr("");
+    setExporting("docx");
+    try {
+      const blob = await compileDocx({ project, drafts, options: { includeGaps: expOpts.gaps, pageBreaks: expOpts.breaks } });
+      downloadBlob(`${safeName(project.title)}.docx`, blob);
+    } catch (e) {
+      setErr("Couldn't build the Word document: " + (e?.message || e));
+    } finally {
+      setExporting("");
+    }
+  }
+  function exportMarkdown() {
+    setErr("");
+    try {
+      const md = compileMarkdown({ project, drafts, options: { includeGaps: expOpts.gaps } });
+      downloadBlob(`${safeName(project.title)}.md`, md, "text/markdown");
+    } catch (e) {
+      setErr("Couldn't build the Markdown file: " + (e?.message || e));
+    }
+  }
   async function updateFootnote(id, source) {
     await run("Saving the source", async () => {
       const footnotes = (currentDraft.footnotes || []).map((f) => (f.id === id ? { ...f, source } : f));
@@ -321,6 +358,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
         <button className={`tab ${tab === "shape" ? "on" : ""}`} onClick={() => setTab("shape")}>Shape</button>
         <button className={`tab ${tab === "write" ? "on" : ""}`} onClick={() => setTab("write")}>Write</button>
         <button className={`tab ${tab === "review" ? "on" : ""}`} onClick={() => setTab("review")}>Review</button>
+        <button className={`tab ${tab === "export" ? "on" : ""}`} onClick={() => setTab("export")}>Export</button>
       </div>
 
       {err && <div className="banner error">{err}</div>}
@@ -613,6 +651,52 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
           )}
         </div>
       )}
+
+      {tab === "export" && (() => {
+        const outline = project.outline || [];
+        const byChapter = Object.fromEntries(drafts.map((d) => [d.chapter, d]));
+        const draftedCount = outline.filter((c) => byChapter[c.chapter]?.text).length;
+        const totalWords = drafts.reduce((s, d) => s + (d.words || 0), 0);
+        const noteCount = drafts.reduce((s, d) => s + (d.footnotes || []).length, 0);
+        const openFlags = drafts.reduce((s, d) => s + (d.flags || []).filter((f) => f.status === "open").length, 0);
+        return (
+          <div className="stack">
+            <div className="card stack">
+              <div>
+                <h3 style={{ margin: "0 0 0.2rem" }}>Compile the manuscript</h3>
+                <span className="hint">Stitches every chapter, in order, into one document — with your footnotes rendered as real, numbered notes.</span>
+              </div>
+              <p className="muted" style={{ margin: 0 }}>
+                {outline.length} chapters · {draftedCount} drafted · {fmt(totalWords)} words · {noteCount} footnote{noteCount === 1 ? "" : "s"}
+                {openFlags > 0 && <span style={{ color: "var(--brass)" }}> · {openFlags} claim{openFlags === 1 ? "" : "s"} still unverified</span>}
+              </p>
+
+              <div className="stack" style={{ gap: "0.4rem" }}>
+                <label className="row" style={{ gap: "0.5rem", cursor: "pointer" }}>
+                  <input type="checkbox" checked={expOpts.gaps} onChange={(e) => setExpOpts((o) => ({ ...o, gaps: e.target.checked }))} />
+                  <span>Include unfilled <span className="gap">[GAP: …]</span> notes (so you can see what's still missing)</span>
+                </label>
+                <label className="row" style={{ gap: "0.5rem", cursor: "pointer" }}>
+                  <input type="checkbox" checked={expOpts.breaks} onChange={(e) => setExpOpts((o) => ({ ...o, breaks: e.target.checked }))} />
+                  <span>Start each chapter on a new page</span>
+                </label>
+              </div>
+
+              <div className="row">
+                <button className="btn btn-primary" onClick={exportDocx} disabled={!!exporting || draftedCount === 0}>
+                  {exporting === "docx" ? <Spin>Building…</Spin> : "Compile to Word (.docx)"}
+                </button>
+                <button className="btn btn-secondary" onClick={exportMarkdown} disabled={draftedCount === 0}>Download Markdown (.md)</button>
+              </div>
+              {draftedCount === 0 && <span className="muted" style={{ fontSize: "0.85rem" }}>Draft at least one chapter first.</span>}
+            </div>
+
+            <div className="card muted" style={{ fontSize: "0.88rem" }}>
+              The Word file uses native footnotes numbered across the whole book, so Word can renumber or convert them to endnotes in one click. Chapters without a draft appear as a heading marked “not yet drafted,” and any source you haven't filled in shows as “[source needed].” This is a clean handoff for design and layout — Lectern's job ends at a structurally sound, sourced manuscript.
+            </div>
+          </div>
+        );
+      })()}
 
       {adding && <AddSource onSave={addSource} onClose={() => setAdding(false)} working={working} busyLabel={busy.label} />}
     </div>

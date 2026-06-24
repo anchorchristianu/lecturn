@@ -179,6 +179,11 @@ button { font-family: var(--ui); cursor: pointer; }
 .draft-read h1, .draft-read h2, .draft-read h3 { margin: 1.4rem 0 0.6rem; }
 .draft-read p { margin: 0 0 1rem; }
 .gap { background: color-mix(in srgb, var(--brass) 18%, white); border-bottom: 1px dashed var(--brass); padding: 0 0.2rem; border-radius: 3px; font-family: var(--ui); font-size: 0.92rem; color: #6b531f; }
+.fn-ref { color: var(--pine); font-weight: 700; font-size: 0.7em; padding: 0 0.05em; }
+.draft-read .notes { margin-top: 1.8rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.draft-read .notes h3 { margin: 0 0 0.6rem; font-size: 1.05rem; }
+.note-row { display: flex; gap: 0.5rem; align-items: baseline; margin: 0 0 0.45rem; font-size: 0.92rem; line-height: 1.5; }
+.note-row sup.fn-ref { font-size: 0.75rem; min-width: 1.1em; }
 
 .note-list { margin: 0.5rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.92rem; }
 .note-list li { margin-bottom: 0.3rem; }

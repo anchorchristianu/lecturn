@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import StageRail from "./StageRail.jsx";
 import DraftView from "./DraftView.jsx";
 import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
+import Footnotes from "./Footnotes.jsx";
 import Spin from "./Spin.jsx";
 import { post, ai } from "../api.js";
 import { extractTextFromFile } from "../extract.js";
 import { countWords, countGaps, readingTime, fmt } from "../metrics.js";
+import { newFootnoteId, numberMap, insertAfterAnchor, insertAt, removeMarker, reconcile } from "../footnotes.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
 
@@ -24,6 +26,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [activePass, setActivePass] = useState(null);
+  const editorRef = useRef(null);
 
   const run = async (label, fn, id = "") => {
     setErr(""); setBusy({ label, id });
@@ -140,10 +143,59 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   async function saveEdit() {
     await run("Saving your edits", async () => {
       const base = currentDraft || { projectId: project.id, chapter: chapterObj.chapter, notes: [], version: 0 };
-      await post({ op: "saveDraft", draft: { ...base, text: editText } });
+      const footnotes = reconcile(editText, base.footnotes);
+      await post({ op: "saveDraft", draft: { ...base, text: editText, footnotes } });
       await onReload();
       setEditing(false);
       setEditText("");
+    });
+  }
+
+  // Insert a footnote marker at the cursor while editing; the source is added
+  // afterward in Notes & sources.
+  function insertFootnoteAtCursor() {
+    const pos = editorRef.current ? editorRef.current.selectionStart : editText.length;
+    const id = newFootnoteId();
+    setEditText((t) => insertAt(t, pos, id));
+  }
+
+  // ---- footnotes / sources ----
+  async function saveDraftObj(draft) {
+    await post({ op: "saveDraft", draft });
+    await onReload();
+  }
+  async function formatChicago(raw) {
+    try {
+      const r = await ai("format_citation", { raw });
+      return (r && r.citation) || raw;
+    } catch {
+      return raw;
+    }
+  }
+  async function addFootnoteFromFlag(flag, source) {
+    await run("Adding the source", async () => {
+      const id = newFootnoteId();
+      const placed = insertAfterAnchor(currentDraft.text, flag.text, id);
+      const footnotes = [...(currentDraft.footnotes || []), { id, source, claim: flag.text }];
+      if (placed) {
+        await saveDraftObj({ ...currentDraft, text: placed, footnotes });
+      } else {
+        await saveDraftObj({ ...currentDraft, footnotes });
+        setErr("Source saved, but I couldn't place the marker automatically (the wording had changed). It's listed under Notes as unplaced.");
+      }
+    });
+  }
+  async function updateFootnote(id, source) {
+    await run("Saving the source", async () => {
+      const footnotes = (currentDraft.footnotes || []).map((f) => (f.id === id ? { ...f, source } : f));
+      await saveDraftObj({ ...currentDraft, footnotes });
+    });
+  }
+  async function removeFootnote(id) {
+    await run("Removing the note", async () => {
+      const text = removeMarker(currentDraft.text, id);
+      const footnotes = (currentDraft.footnotes || []).filter((f) => f.id !== id);
+      await saveDraftObj({ ...currentDraft, text, footnotes });
     });
   }
 
@@ -368,6 +420,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                     <span className="muted" style={{ fontSize: "0.85rem" }}>{fmt(countWords(editText))} words</span>
                   </div>
                   <textarea
+                    ref={editorRef}
                     className="textarea"
                     value={editText}
                     onChange={(e) => setEditText(e.target.value)}
@@ -383,6 +436,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                     <button className="btn btn-primary" onClick={saveEdit} disabled={working}>
                       {working ? <Spin>Saving…</Spin> : "Save edits"}
                     </button>
+                    <button className="btn btn-secondary" onClick={insertFootnoteAtCursor} disabled={working}>Insert footnote at cursor</button>
                     <button className="btn btn-ghost" onClick={cancelEdit} disabled={working}>Cancel</button>
                   </div>
                 </div>
@@ -417,8 +471,17 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                       <span className="spacer" />
                       <button className="btn btn-secondary" onClick={startEdit} disabled={working}>✎ Edit directly</button>
                     </div>
-                    <DraftView text={currentDraft.text} />
+                    <DraftView text={currentDraft.text} footnotes={currentDraft.footnotes} />
                   </div>
+
+                  <Footnotes
+                    footnotes={currentDraft.footnotes || []}
+                    nums={numberMap(currentDraft.text)}
+                    working={working}
+                    onUpdate={updateFootnote}
+                    onRemove={removeFootnote}
+                    onFormat={formatChicago}
+                  />
 
                   <div className="card stack">
                     <div className="field" style={{ marginBottom: 0 }}>
@@ -435,7 +498,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                   </div>
 
                   {activePass ? (
-                    <EditPass pass={activePass} working={working} onApply={applyPass} onClose={() => setActivePass(null)} />
+                    <EditPass pass={activePass} working={working} onApply={applyPass} onClose={() => setActivePass(null)} onAddSource={addFootnoteFromFlag} onFormat={formatChicago} />
                   ) : (
                     <div className="card stack">
                       <div>

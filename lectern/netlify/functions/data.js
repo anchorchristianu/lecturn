@@ -110,8 +110,9 @@ export default async (req) => {
             projectId: body.draft.projectId,
             chapter: body.draft.chapter,
             text,
-            words: countWords(text),
+            words: countWords(text.replace(/\[\^fn_[a-z0-9]+\]/g, "")),
             notes: body.draft.notes || [],
+            footnotes: body.draft.footnotes || [],
             polished: body.draft.polished || false,
             version: (body.draft.version || 0) + 1,
           };

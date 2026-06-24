@@ -408,6 +408,22 @@ DRAFT:
   return { system, messages: [{ role: "user", content: user }], model: cfg.model, maxTokens: 6000, json: true };
 }
 
+// FORMAT CITATION → turn rough source info into a clean Chicago-style note.
+// Never invents missing details (no made-up pages, publishers, or dates).
+export function formatCitation({ raw }) {
+  const system =
+    `You format source information into a single Chicago Manual of Style (17th/18th ed.) ` +
+    `NOTE (footnote/endnote form, not bibliography form). Use ONLY the details provided. ` +
+    `Do NOT invent or guess missing information — no fabricated page numbers, publishers, ` +
+    `cities, dates, or URLs. If a piece is missing, simply omit it and format what's there. ` +
+    `For a Bible reference, use standard form (e.g., "Ezekiel 26:3–5"). Return the note text ` +
+    `only, with no surrounding quotation marks.`;
+  const user = `Format this source as a Chicago note. Return ONLY valid JSON: { "citation": "the formatted note" }
+
+"""${raw}"""`;
+  return { system, messages: [{ role: "user", content: user }], model: "sort", maxTokens: 400, json: true };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -418,4 +434,5 @@ export const ACTIONS = {
   polish: (p) => polishDraft(p),
   developmental_review: (p) => developmentalReview(p),
   edit_pass: (p) => editPass(p),
+  format_citation: (p) => formatCitation(p),
 };

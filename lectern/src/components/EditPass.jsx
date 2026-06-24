@@ -5,6 +5,61 @@
 import { useState } from "react";
 import Spin from "./Spin.jsx";
 
+// One fact-check flag, with an inline "add source" form that creates a footnote.
+function FlagItem({ flag, working, onAddSource, onFormat }) {
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function format() {
+    if (!val.trim()) return;
+    setBusy(true);
+    try { const f = await onFormat(val); if (f) setVal(f); } finally { setBusy(false); }
+  }
+  async function save() {
+    setBusy(true);
+    try { await onAddSource(flag, val); setDone(true); setOpen(false); } finally { setBusy(false); }
+  }
+
+  return (
+    <li style={{ marginBottom: "0.7rem" }}>
+      {flag.category && <span className="status" style={{ marginRight: "0.45rem" }}>{flag.category}</span>}
+      <span style={{ color: "var(--brass)", fontWeight: 600 }}>{flag.text}</span>
+      {flag.concern ? <span className="muted"> — {flag.concern}</span> : null}
+      <div className="row" style={{ marginTop: "0.35rem" }}>
+        {done ? (
+          <span className="muted" style={{ fontSize: "0.83rem", color: "var(--pine)" }}>✓ source added as a footnote</span>
+        ) : (
+          <button className="btn btn-secondary" style={{ padding: "0.2rem 0.7rem", fontSize: "0.83rem" }} onClick={() => setOpen((o) => !o)} disabled={working}>
+            {open ? "Cancel" : "Add source"}
+          </button>
+        )}
+      </div>
+      {open && !done && (
+        <div className="stack" style={{ marginTop: "0.5rem" }}>
+          <textarea
+            className="textarea"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            placeholder="Paste or type the source — book, author, page, URL…"
+            style={{ minHeight: 60 }}
+            disabled={busy}
+          />
+          <div className="row">
+            <button className="btn btn-secondary" style={{ padding: "0.25rem 0.8rem", fontSize: "0.85rem" }} onClick={format} disabled={busy || !val.trim()}>
+              {busy ? <Spin>Working…</Spin> : "Format in Chicago"}
+            </button>
+            <button className="btn btn-primary" style={{ padding: "0.25rem 0.8rem", fontSize: "0.85rem" }} onClick={save} disabled={busy || !val.trim()}>
+              Save as footnote
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 const LABELS = {
   line: { title: "Line edit", note: "Style, rhythm, and word choice — in your voice. Suggestions only; nothing changes until you apply it." },
   copy: { title: "Copy edit", note: "Grammar, punctuation, spelling, and consistency. Mechanical fixes only." },
@@ -12,7 +67,7 @@ const LABELS = {
   factcheck: { title: "Fact-check", note: "Every checkable claim — quotes, names, numbers, dates, scripture references — gathered for you to verify. Nothing is changed; these are yours to confirm against the source." },
 };
 
-export default function EditPass({ pass, working, onApply, onClose }) {
+export default function EditPass({ pass, working, onApply, onClose, onAddSource, onFormat }) {
   const meta = LABELS[pass.level] || LABELS.line;
   const suggestions = pass.suggestions || [];
   const flags = pass.flags || [];
@@ -41,11 +96,7 @@ export default function EditPass({ pass, working, onApply, onClose }) {
         ) : (
           <ul className="note-list" style={{ marginTop: 0 }}>
             {flags.map((f, i) => (
-              <li key={i} style={{ marginBottom: "0.6rem" }}>
-                {f.category && <span className="status" style={{ marginRight: "0.45rem" }}>{f.category}</span>}
-                <span style={{ color: "var(--brass)", fontWeight: 600 }}>{f.text}</span>
-                {f.concern ? <span className="muted"> — {f.concern}</span> : null}
-              </li>
+              <FlagItem key={i} flag={f} working={working} onAddSource={onAddSource} onFormat={onFormat} />
             ))}
           </ul>
         )}

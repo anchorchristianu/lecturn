@@ -96,7 +96,7 @@ export default function App() {
         ) : loading && view === "library" ? (
           <div className="working"><span className="spinner" /> Loading…</div>
         ) : view === "library" ? (
-          <Library projects={projects} onOpen={openProject} onNew={() => setView("intake")} />
+          <Library projects={projects} user={user} onOpen={openProject} onNew={() => setView("intake")} />
         ) : view === "intake" ? (
           <Intake onCreate={createProject} onCancel={() => setView("library")} />
         ) : current ? (
@@ -104,6 +104,7 @@ export default function App() {
             project={current.project}
             sources={current.sources}
             drafts={current.drafts}
+            user={user}
             onReload={reloadCurrent}
             onBack={backToLibrary}
             onDeleted={backToLibrary}

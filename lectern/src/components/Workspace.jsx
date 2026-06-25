@@ -1,5 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import StageRail from "./StageRail.jsx";
+import Collaborators from "./Collaborators.jsx";
 import DraftView from "./DraftView.jsx";
 import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
@@ -16,7 +17,7 @@ import { compileDocx, compileMarkdown, safeName } from "../compile.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
 
-export default function Workspace({ project, sources, drafts, onReload, onBack, onDeleted }) {
+export default function Workspace({ project, sources, drafts, user, onReload, onBack, onDeleted }) {
   const [tab, setTab] = useState("sources");
   const [err, setErr] = useState("");
   // busy tracks BOTH a label (for the global indicator) and an id (which item
@@ -34,13 +35,38 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   const [exporting, setExporting] = useState("");
   const [expOpts, setExpOpts] = useState({ gaps: true, breaks: true });
 
+  // ---- collaboration: members, roles, and per-chapter voice ----
+  const members = project.members || [];
+  const me = user?.id;
+  const myRole = members.find((m) => m.uid === me)?.role || project.myRole || "owner";
+  const isOwner = myRole === "owner";
+  const ownerId = project.ownerId;
+  const ownerVoice = members.find((m) => m.role === "owner")?.voiceSample || project.voiceSample || "";
+  // The voice belongs to the chapter's assigned author — so an editor/ghostwriter
+  // operating on someone else's chapter preserves that author's singular voice.
+  const voiceFor = (ch) => {
+    const aid = ch?.authorId || ownerId;
+    return members.find((m) => m.uid === aid)?.voiceSample || ownerVoice;
+  };
+  const authorName = (uid) => {
+    const m = members.find((x) => x.uid === uid);
+    return m ? (m.name || m.email) : "—";
+  };
+  // Book-level work (shape, review, style, launch) uses the owner's voice;
+  // chapter-level work uses the assigned author's voice.
+  const ctx = { brief: project.brief, voiceSample: ownerVoice };
+  const chapterCtx = (ch) => ({ brief: project.brief, voiceSample: voiceFor(ch) });
+
+  // soft per-chapter lock
+  const [heldBy, setHeldBy] = useState(null); // {uid,name} when someone else holds the chapter
+  const hbRef = useRef(null);
+  const lockedChapterRef = useRef(null);
+
   const run = async (label, fn, id = "") => {
     setErr(""); setBusy({ label, id });
     try { await fn(); } catch (e) { setErr(String(e.message || e)); }
     finally { setBusy({ label: "", id: "" }); }
   };
-
-  const ctx = { brief: project.brief, voiceSample: project.voiceSample };
 
   // ---- sources ----
   async function addSource(s) {
@@ -105,7 +131,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   async function interview(chapter) {
     await run("Thinking of questions", async () => {
       const forChapter = sources.filter((s) => (s.chapters || []).includes(chapter.chapter));
-      const r = await ai("interview", { ...ctx, chapter, sources: forChapter.length ? forChapter : sources });
+      const r = await ai("interview", { ...chapterCtx(chapter), chapter, sources: forChapter.length ? forChapter : sources });
       setInterviewQs({ ...interviewQs, [chapter.chapter]: r.questions || [] });
     }, chapter.chapter);
   }
@@ -120,7 +146,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   }
   async function draftChapter() {
     await run("Drafting the chapter", async () => {
-      const r = await ai("draft", { ...ctx, chapter: chapterObj, sources: sourcesForChapter(chapterObj) });
+      const r = await ai("draft", { ...chapterCtx(chapterObj), chapter: chapterObj, sources: sourcesForChapter(chapterObj) });
       await post({ op: "saveDraft", draft: { projectId: project.id, chapter: chapterObj.chapter, text: r.draft || "", notes: r.notes || [], version: currentDraft?.version || 0 } });
       await onReload();
     });
@@ -128,7 +154,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   async function reviseChapter() {
     if (!feedback.trim()) return;
     await run("Revising", async () => {
-      const r = await ai("refine", { ...ctx, chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: sourcesForChapter(chapterObj) });
+      const r = await ai("refine", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: sourcesForChapter(chapterObj) });
       await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, notes: r.notes || [] } });
       setFeedback("");
       await onReload();
@@ -136,22 +162,51 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
   }
   async function polishChapter() {
     await run("Polishing", async () => {
-      const r = await ai("polish", { ...ctx, chapter: chapterObj, currentDraft: currentDraft.text });
+      const r = await ai("polish", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text });
       await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
       await onReload();
     });
   }
 
+  // ---- soft per-chapter lock helpers ----
+  const lockChapter = (chapter) => post({ op: "lockChapter", projectId: project.id, chapter });
+  const unlockChapter = (chapter) => post({ op: "unlockChapter", projectId: project.id, chapter }).catch(() => {});
+  function startHeartbeat(chapter) {
+    stopHeartbeat();
+    hbRef.current = setInterval(() => { lockChapter(chapter).catch(() => {}); }, 45000);
+  }
+  function stopHeartbeat() { if (hbRef.current) { clearInterval(hbRef.current); hbRef.current = null; } }
+  function releaseLock() {
+    stopHeartbeat();
+    if (lockedChapterRef.current) { unlockChapter(lockedChapterRef.current); lockedChapterRef.current = null; }
+  }
+  // Release the lock if the user navigates away mid-edit (ref avoids stale closure).
+  useEffect(() => () => releaseLock(), []);
+
+  async function beginEdit(initial) {
+    if (!chapterObj) return;
+    setErr("");
+    try {
+      const r = await lockChapter(chapterObj.chapter);
+      if (!r.ok) { setHeldBy(r.lock || { name: "Someone" }); return; }
+    } catch (e) { setErr(String(e.message || e)); return; }
+    setHeldBy(null);
+    lockedChapterRef.current = chapterObj.chapter;
+    setEditText(initial);
+    setEditing(true);
+    startHeartbeat(chapterObj.chapter);
+  }
   // ---- direct editing (type your own changes) ----
-  function startEdit() { setEditText(currentDraft?.text || ""); setEditing(true); }
-  function startBlank() { setEditText(""); setEditing(true); }
-  function cancelEdit() { setEditing(false); setEditText(""); }
+  function startEdit() { beginEdit(currentDraft?.text || ""); }
+  function startBlank() { beginEdit(""); }
+  function cancelEdit() { releaseLock(); setEditing(false); setEditText(""); setHeldBy(null); }
   async function saveEdit() {
     await run("Saving your edits", async () => {
       const base = currentDraft || { projectId: project.id, chapter: chapterObj.chapter, notes: [], version: 0 };
       const footnotes = reconcile(editText, base.footnotes);
       await post({ op: "saveDraft", draft: { ...base, text: editText, footnotes } });
       await onReload();
+      releaseLock();
       setEditing(false);
       setEditText("");
     });
@@ -326,7 +381,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
     setActivePass(null);
     await run(PASS_LABEL[level], async () => {
       const r = await ai("edit_pass", {
-        ...ctx,
+        ...chapterCtx(chapterObj),
         level,
         chapter: chapterObj,
         currentDraft: currentDraft.text,
@@ -381,6 +436,38 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
     });
   }
 
+  // ---- collaborators ----
+  async function inviteMember(email, role) {
+    await run("Sending the invite", async () => {
+      await post({ op: "inviteMember", projectId: project.id, email, role });
+      await onReload();
+    });
+  }
+  async function removeMember(uid) {
+    await run("Removing collaborator", async () => {
+      await post({ op: "removeMember", projectId: project.id, uid });
+      await onReload();
+    });
+  }
+  async function changeRole(uid, role) {
+    await run("Updating role", async () => {
+      await post({ op: "updateRole", projectId: project.id, uid, role });
+      await onReload();
+    });
+  }
+  async function saveVoice(uid, voiceSample) {
+    await run("Saving voice", async () => {
+      await post({ op: "setVoice", projectId: project.id, uid, voiceSample });
+      await onReload();
+    });
+  }
+  async function assignChapter(chapter, authorId) {
+    await run("Assigning the chapter", async () => {
+      await post({ op: "assignChapter", projectId: project.id, chapter, authorId });
+      await onReload();
+    });
+  }
+
   return (
     <div>
       <div className="crumbs"><button className="btn-ghost" onClick={onBack}>← Your books</button></div>
@@ -405,6 +492,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
         <button className={`tab ${tab === "style" ? "on" : ""}`} onClick={() => setTab("style")}>Style</button>
         <button className={`tab ${tab === "export" ? "on" : ""}`} onClick={() => setTab("export")}>Export</button>
         <button className={`tab ${tab === "launch" ? "on" : ""}`} onClick={() => setTab("launch")}>Launch</button>
+        <button className={`tab ${tab === "team" ? "on" : ""}`} onClick={() => setTab("team")}>Team{members.length > 1 ? ` (${members.length})` : ""}</button>
       </div>
 
       {err && <div className="banner error">{err}</div>}
@@ -518,7 +606,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
 
           <div className="row" style={{ marginTop: "2rem" }}>
             <span className="spacer" />
-            <button className="btn btn-danger" onClick={deleteBook} disabled={working}>Delete this book</button>
+            {isOwner && <button className="btn btn-danger" onClick={deleteBook} disabled={working}>Delete this book</button>}
           </div>
         </div>
       )}
@@ -536,6 +624,33 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
                   {project.outline.map((c) => <option key={c.chapter}>{c.chapter}</option>)}
                 </select>
               </div>
+
+              {chapterObj && (
+                <div className="row" style={{ gap: "0.6rem", alignItems: "center", fontSize: "0.9rem" }}>
+                  <span className="muted">Voice:</span>
+                  {(isOwner || myRole === "author") ? (
+                    <select
+                      value={chapterObj.authorId || ownerId}
+                      onChange={(e) => assignChapter(chapterObj.chapter, e.target.value)}
+                      disabled={working || editing}
+                      style={{ padding: "0.25rem 0.5rem", borderRadius: 8, border: "1px solid var(--line-strong)", background: "var(--surface)", font: "inherit" }}
+                    >
+                      {members.filter((m) => m.role === "owner" || m.role === "author").map((m) => (
+                        <option key={m.uid} value={m.uid}>{m.name || m.email}{m.uid === ownerId ? " (owner)" : ""}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <b>{authorName(chapterObj.authorId || ownerId)}</b>
+                  )}
+                  <span className="muted" style={{ fontSize: "0.82rem" }}>— this chapter is drafted and edited in this author's voice.</span>
+                </div>
+              )}
+
+              {heldBy && !editing && (
+                <div className="banner" style={{ background: "var(--brass-soft, #f3e9d2)", border: "1px solid var(--brass)" }}>
+                  <b>{heldBy.name || "Someone"}</b> is editing this chapter right now. You can read it, but hold off on editing until they're done (the lock clears automatically if they step away).
+                </div>
+              )}
 
               {editing ? (
                 <div className="card stack">
@@ -706,6 +821,20 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
           hasDrafts={drafts.length > 0}
           onBuild={buildStyleSheet}
           onSave={saveStyleSheet}
+        />
+      )}
+
+      {tab === "team" && (
+        <Collaborators
+          members={members}
+          me={me}
+          isOwner={isOwner}
+          ownerId={ownerId}
+          working={working}
+          onInvite={inviteMember}
+          onRemove={removeMember}
+          onChangeRole={changeRole}
+          onSaveVoice={saveVoice}
         />
       )}
 

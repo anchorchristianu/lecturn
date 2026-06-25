@@ -5,7 +5,7 @@ import { hashPassword, verifyPassword, makeSession, sessionCookie, clearCookie, 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ADMINS = (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const isAdmin = (email) => ADMINS.includes((email || "").toLowerCase());
-const pub = (u) => ({ email: u.email, name: u.name, isAdmin: isAdmin(u.email) });
+const pub = (u) => ({ id: u.uid || u.id, email: u.email, name: u.name, isAdmin: isAdmin(u.email) });
 
 export default async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);

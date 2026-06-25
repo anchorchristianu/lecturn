@@ -39,7 +39,7 @@ export default async (req) => {
   const [users, allProjects, usageMap] = await Promise.all([listUsers(), listAllProjects(), getUsageMap()]);
 
   const byUser = {};
-  for (const p of allProjects) (byUser[p.userId] = byUser[p.userId] || []).push(p);
+  for (const p of allProjects) (byUser[p.ownerId] = byUser[p.ownerId] || []).push(p);
 
   const rows = users.map((usr) => {
     const ps = (byUser[usr.id] || []).map(projectStat).sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));

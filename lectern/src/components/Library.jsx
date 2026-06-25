@@ -1,7 +1,8 @@
 import StageRail from "./StageRail.jsx";
 import { fmt } from "../metrics.js";
 
-export default function Library({ projects, onOpen, onNew }) {
+export default function Library({ projects, user, onOpen, onNew }) {
+  const roleLabel = (r) => (r === "author" ? "Co-author" : r === "editor" ? "Editor" : null);
   return (
     <div>
       <div className="library-head">
@@ -26,7 +27,7 @@ export default function Library({ projects, onOpen, onNew }) {
         <div className="booklist">
           {projects.map((p) => (
             <button key={p.id} className="card bookcard" onClick={() => onOpen(p.id)}>
-              <h3>{p.title}</h3>
+              <h3>{p.title}{roleLabel(p.myRole) && <span className="status" style={{ marginLeft: "0.5rem", fontSize: "0.7rem", verticalAlign: "middle" }}>{roleLabel(p.myRole)}</span>}</h3>
               <p className="brief">{p.brief || "No brief yet."}</p>
               <StageRail project={p} sources={[]} drafts={[]} />
               <div className="meta">

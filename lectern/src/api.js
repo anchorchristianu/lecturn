@@ -40,7 +40,7 @@ export const admin = () => fetch("/api/admin", opts("GET")).then(handle);
 // otherwise kills slower steps like outlining and drafting with a 502.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export const ai = async (action, payload) => {
+export const ai = async (action, payload, onProgress) => {
   const jobId =
     (typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID()) ||
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -57,10 +57,10 @@ export const ai = async (action, payload) => {
     throw new Error(d.error || `Couldn't start the AI step (${res.status}).`);
   }
 
-  // 3) Poll for the result.
+  // 3) Poll for the result, surfacing partial text as it streams in.
   const started = Date.now();
   const MAX_MS = 4 * 60 * 1000; // give up after 4 minutes
-  let delay = 800;
+  let delay = 600;
   while (true) {
     await sleep(delay);
     let job;
@@ -73,7 +73,8 @@ export const ai = async (action, payload) => {
     }
     if (job?.status === "done") return job.result;
     if (job?.status === "error") throw new Error(job.error || "The AI step failed. Please try again.");
+    if (job?.partial && onProgress) { try { onProgress(job.partial); } catch {} }
     if (Date.now() - started > MAX_MS) throw new Error("This is taking unusually long — please try again in a moment.");
-    delay = Math.min(delay + 250, 2000);
+    delay = Math.min(delay + 150, 1000);
   }
 };

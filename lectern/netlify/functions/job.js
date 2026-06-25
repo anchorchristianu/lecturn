@@ -18,5 +18,5 @@ export default async (req) => {
     job = null;
   }
   if (!job) return json({ job: { status: "pending" } });
-  return json({ job: { status: job.status, result: job.result, error: job.error } });
+  return json({ job: { status: job.status, result: job.result, error: job.error, partial: job.partial } });
 };

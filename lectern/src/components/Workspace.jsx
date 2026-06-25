@@ -17,6 +17,33 @@ import { compileDocx, compileMarkdown, safeName } from "../compile.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
 
+// Pull the in-progress "draft" string out of partial (incomplete) JSON so the
+// chapter can be shown as it streams. Robust to mid-stream truncation.
+function extractDraftText(partial) {
+  if (!partial) return "";
+  const key = partial.indexOf('"draft"');
+  if (key === -1) return "";
+  const colon = partial.indexOf(":", key);
+  const open = partial.indexOf('"', colon + 1);
+  if (open === -1) return "";
+  let out = "";
+  for (let i = open + 1; i < partial.length; i++) {
+    const ch = partial[i];
+    if (ch === "\\") {
+      const n = partial[i + 1];
+      out += n === "n" ? "\n" : n === "t" ? "\t" : n === '"' ? '"' : n === "\\" ? "\\" : n || "";
+      i++;
+    } else if (ch === '"') break; // closing quote — string complete
+    else out += ch;
+  }
+  return out;
+}
+
+// Send only the source fields the prompts use. Dropping `raw` (the uncleaned
+// transcript, redundant with `text`) roughly halves the enqueue payload.
+const trimForPrompt = (srcs) =>
+  (srcs || []).map((s) => ({ title: s.title, type: s.type, text: s.text, summary: s.summary, stories: s.stories, chapters: s.chapters }));
+
 export default function Workspace({ project, sources, drafts, user, onReload, onBack, onDeleted }) {
   const [tab, setTab] = useState("sources");
   const [err, setErr] = useState("");
@@ -34,6 +61,7 @@ export default function Workspace({ project, sources, drafts, user, onReload, on
   const editorRef = useRef(null);
   const [exporting, setExporting] = useState("");
   const [expOpts, setExpOpts] = useState({ gaps: true, breaks: true });
+  const [preview, setPreview] = useState(""); // live text while a chapter streams
 
   // ---- collaboration: members, roles, and per-chapter voice ----
   const members = project.members || [];
@@ -131,7 +159,7 @@ export default function Workspace({ project, sources, drafts, user, onReload, on
   async function interview(chapter) {
     await run("Thinking of questions", async () => {
       const forChapter = sources.filter((s) => (s.chapters || []).includes(chapter.chapter));
-      const r = await ai("interview", { ...chapterCtx(chapter), chapter, sources: forChapter.length ? forChapter : sources });
+      const r = await ai("interview", { ...chapterCtx(chapter), chapter, sources: trimForPrompt(forChapter.length ? forChapter : sources) });
       setInterviewQs({ ...interviewQs, [chapter.chapter]: r.questions || [] });
     }, chapter.chapter);
   }
@@ -145,25 +173,31 @@ export default function Workspace({ project, sources, drafts, user, onReload, on
     return matched.length ? matched : sources;
   }
   async function draftChapter() {
+    setPreview("");
     await run("Drafting the chapter", async () => {
-      const r = await ai("draft", { ...chapterCtx(chapterObj), chapter: chapterObj, sources: sourcesForChapter(chapterObj) });
+      const r = await ai("draft", { ...chapterCtx(chapterObj), chapter: chapterObj, sources: trimForPrompt(sourcesForChapter(chapterObj)) }, (p) => setPreview(extractDraftText(p)));
       await post({ op: "saveDraft", draft: { projectId: project.id, chapter: chapterObj.chapter, text: r.draft || "", notes: r.notes || [], version: currentDraft?.version || 0 } });
+      setPreview("");
       await onReload();
     });
   }
   async function reviseChapter() {
     if (!feedback.trim()) return;
+    setPreview("");
     await run("Revising", async () => {
-      const r = await ai("refine", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: sourcesForChapter(chapterObj) });
+      const r = await ai("refine", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: trimForPrompt(sourcesForChapter(chapterObj)) }, (p) => setPreview(extractDraftText(p)));
       await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, notes: r.notes || [] } });
       setFeedback("");
+      setPreview("");
       await onReload();
     });
   }
   async function polishChapter() {
+    setPreview("");
     await run("Polishing", async () => {
-      const r = await ai("polish", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text });
+      const r = await ai("polish", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text }, (p) => setPreview(extractDraftText(p)));
       await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
+      setPreview("");
       await onReload();
     });
   }
@@ -649,6 +683,20 @@ export default function Workspace({ project, sources, drafts, user, onReload, on
               {heldBy && !editing && (
                 <div className="banner" style={{ background: "var(--brass-soft, #f3e9d2)", border: "1px solid var(--brass)" }}>
                   <b>{heldBy.name || "Someone"}</b> is editing this chapter right now. You can read it, but hold off on editing until they're done (the lock clears automatically if they step away).
+                </div>
+              )}
+
+              {preview && working && (
+                <div className="card stack">
+                  <div className="row">
+                    <label style={{ fontWeight: 600, margin: 0 }}><Spin>{busy.label}…</Spin></label>
+                    <span className="spacer" />
+                    <span className="muted" style={{ fontSize: "0.85rem" }}>{fmt(countWords(preview))} words so far</span>
+                  </div>
+                  <div style={{ minHeight: 200, maxHeight: 460, overflowY: "auto", fontFamily: "var(--display)", fontSize: "1.08rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                    {preview}<span style={{ opacity: 0.5 }}>▍</span>
+                  </div>
+                  <span className="hint">Writing in {authorName(chapterObj?.authorId || ownerId)}'s voice — this updates live and saves when it's finished.</span>
                 </div>
               )}
 

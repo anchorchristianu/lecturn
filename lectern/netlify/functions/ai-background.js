@@ -17,7 +17,7 @@ const MODELS = {
   sort: process.env.MODEL_SORT || "claude-haiku-4-5",
 };
 
-async function callClaude({ system, messages, model, maxTokens }) {
+async function callClaude({ system, messages, model, maxTokens }, onPartial) {
   const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -26,12 +26,42 @@ async function callClaude({ system, messages, model, maxTokens }) {
       "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: MODELS[model] || MODELS.main, max_tokens: maxTokens, system: systemBlocks, messages }),
+    body: JSON.stringify({ model: MODELS[model] || MODELS.main, max_tokens: maxTokens, system: systemBlocks, messages, stream: true }),
   });
   if (!res.ok) throw new Error(`Claude API ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const text = data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-  return { text, usage: data.usage || {} };
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let usage = {};
+  let lastEmit = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || ""; // keep the trailing partial line
+    for (const line of lines) {
+      const s = line.trim();
+      if (!s.startsWith("data:")) continue;
+      const data = s.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      let evt;
+      try { evt = JSON.parse(data); } catch { continue; }
+      if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+        text += evt.delta.text;
+        const now = Date.now();
+        if (onPartial && now - lastEmit > 900) { lastEmit = now; await onPartial(text); }
+      } else if (evt.type === "message_start" && evt.message?.usage) {
+        usage = { ...usage, ...evt.message.usage };
+      } else if (evt.type === "message_delta" && evt.usage) {
+        usage = { ...usage, ...evt.usage };
+      }
+    }
+  }
+  return { text: text.trim(), usage };
 }
 
 function parseJson(text) {
@@ -71,7 +101,10 @@ export default async (req) => {
     if (!build) throw new Error(`Unknown action: ${job.action}`);
 
     const spec = build(job.payload || {});
-    const out = await callClaude(spec);
+    const out = await callClaude(spec, async (partial) => {
+      // Publish in-progress text so the client can show the draft as it's written.
+      try { await putJob(u.uid, jobId, { status: "running", partial }); } catch {}
+    });
     const text = out.text;
     const result = spec.json ? parseJson(text) : { text };
 

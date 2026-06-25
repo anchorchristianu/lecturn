@@ -375,13 +375,23 @@ const EDIT_LEVELS = {
   },
 };
 
-export function editPass({ brief, voiceSample, chapter, currentDraft, level, styleGuide }) {
+export function editPass({ brief, voiceSample, chapter, currentDraft, level, styleGuide, styleSheet }) {
   const cfg = EDIT_LEVELS[level] || EDIT_LEVELS.line;
   const focus = cfg.focus.replace("{STYLE}", styleGuide || "Chicago Manual of Style");
 
+  // Established project style-sheet decisions enforced during line/copy/proof.
+  let sheetBlock = "";
+  if (!cfg.flagsOnly && Array.isArray(styleSheet) && styleSheet.length) {
+    const lines = styleSheet.slice(0, 250).map((e) => `- ${e.term} → ${e.ruling}${e.category ? ` (${e.category})` : ""}`).join("\n");
+    sheetBlock =
+      `\n\nPROJECT STYLE SHEET — these are the book's established spelling, capitalization, ` +
+      `naming, and terminology decisions. Make the chapter consistent with them and suggest ` +
+      `a fix for any deviation. Respect the author's coined/framework terms exactly as written:\n${lines}`;
+  }
+
   const system = projectContext({ brief, voiceSample }) +
     `\n\nYou are a professional editor doing ONE specific pass on a single chapter. ` +
-    focus +
+    focus + sheetBlock +
     `\n\nReturn discrete, reviewable suggestions — the author will accept or reject ` +
     `each one, so each must stand alone. CRITICAL: in "original", quote the text to be ` +
     `changed EXACTLY as it appears in the draft — verbatim, character for character, ` +
@@ -430,6 +440,81 @@ export function formatCitation({ raw }) {
   return { system, messages: [{ role: "user", content: user }], model: "sort", maxTokens: 400, json: true };
 }
 
+// STYLE SHEET → the copyeditor's consistency record for the whole book. Scans
+// the manuscript for the author's established forms and coined vocabulary, and
+// finds inconsistencies (same term spelled/capitalized/hyphenated differently).
+export function styleSheet({ brief, voiceSample, chapters, guide }) {
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou are a copyeditor building a STYLE SHEET — the living record of spelling, ` +
+    `capitalization, hyphenation, naming, number, and terminology decisions that keep a ` +
+    `book consistent. Base conventions on the ${guide || "Chicago Manual of Style"}, but ` +
+    `the AUTHOR'S established usage and coined/framework vocabulary always win, even when ` +
+    `unconventional. Do NOT change any text — you are producing a reference list.\n\n` +
+    `Do two things: (1) record the book's preferred forms, especially distinctive recurring ` +
+    `terms, proper names (people, places, books, organizations), and the book's own framework ` +
+    `vocabulary and acronyms; and (2) find INCONSISTENCIES — the same term spelled, ` +
+    `capitalized, or hyphenated more than one way across the chapters. When usage varies, ` +
+    `prefer the form the author uses most often. Keep rulings short and concrete.`;
+
+  const ch = (chapters || [])
+    .map((c, i) => `### ${i + 1}. ${c.chapter}\n${c.text || "(not drafted)"}`)
+    .join("\n\n") || "(no chapters yet)";
+
+  const user = `Here is the manuscript. Build the style sheet.
+
+${ch}
+
+Return ONLY valid JSON in this shape:
+{
+  "summary": "1-2 sentences on the overall consistency of the manuscript",
+  "entries": [
+    { "term": "the word, name, or concept", "ruling": "the decision — e.g. 'one word, lowercase' or 'Grow, Reflect, Apply, Yield — always capitalized'", "category": "spelling | capitalization | hyphenation | name | numbers | term | framework" }
+  ],
+  "inconsistencies": [
+    { "term": "the term that varies", "variants": ["how it appears one way", "how it appears another way"], "suggestion": "the form to standardize on and why" }
+  ]
+}`;
+
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 4000, json: true };
+}
+
+// LAUNCH KIT → marketing copy and metadata derived from the finished book.
+// This is the one post-manuscript area where AI copy is genuinely useful. It must
+// NOT invent facts about the real author or fabricate endorsements — the bio and
+// outreach pieces use [bracketed placeholders] the author fills in.
+export function launchKit({ brief, voiceSample, title, outline }) {
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou write book marketing copy and publishing metadata for a finished nonfiction ` +
+    `book. Match the book's actual subject and tone, and speak directly to its intended ` +
+    `reader. Be specific and benefit-driven — name the real tension the reader feels and ` +
+    `what they'll gain — not generic hype or empty superlatives.\n\n` +
+    `STRICT: Do NOT invent facts about the author, and do NOT fabricate endorsements, ` +
+    `quotes, reviews, sales figures, or credentials. For the author bio, use ONLY ` +
+    `biographical details that appear in the material above; for anything you don't know, ` +
+    `leave a [bracketed placeholder] for the author to fill in. The endorsement email is a ` +
+    `template the author will send — it must not contain any fabricated praise.`;
+
+  const ol = (outline || []).map((c, i) => `${i + 1}. ${c.chapter}${c.purpose ? ` — ${c.purpose}` : ""}`).join("\n") || "(no outline yet)";
+
+  const user = `Book title: "${title || "Untitled"}"
+
+Chapter outline:
+${ol}
+
+Write the launch kit. Return ONLY valid JSON in this shape:
+{
+  "tagline": "a single-sentence hook that captures the promise of the book",
+  "description": "the sales description (about 150-200 words) — the jacket / online-store copy that makes the right reader want this book",
+  "backCover": "back-cover copy for the printed book: a tight version of the description, in short punchy paragraphs",
+  "keywords": ["7 search keywords or short phrases a reader might use to find this book"],
+  "categories": ["3-5 book-category suggestions (BISAC-style, e.g. 'Religion / Christian Living / Professional Growth')"],
+  "bio": "a short third-person author bio (2-4 sentences) using ONLY known details, with [placeholders] for anything not provided",
+  "endorsementEmail": "a short, warm email template the author can send to ask a respected person for an endorsement, with [placeholders] for names and specifics"
+}`;
+
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 2500, json: true };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -441,4 +526,6 @@ export const ACTIONS = {
   developmental_review: (p) => developmentalReview(p),
   edit_pass: (p) => editPass(p),
   format_citation: (p) => formatCitation(p),
+  style_sheet: (p) => styleSheet(p),
+  launch_kit: (p) => launchKit(p),
 };

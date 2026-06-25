@@ -5,6 +5,8 @@ import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
 import Footnotes from "./Footnotes.jsx";
 import Flags from "./Flags.jsx";
+import StyleSheet from "./StyleSheet.jsx";
+import LaunchKit from "./LaunchKit.jsx";
 import Spin from "./Spin.jsx";
 import { post, ai } from "../api.js";
 import { extractTextFromFile } from "../extract.js";
@@ -263,6 +265,47 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
       setErr("Couldn't build the Markdown file: " + (e?.message || e));
     }
   }
+
+  // ---- style sheet ----
+  const seId = () => "se_" + Math.random().toString(36).slice(2, 9);
+  async function buildStyleSheet() {
+    await run("Building the style sheet", async () => {
+      const chapters = (project.outline || []).map((c) => ({
+        chapter: c.chapter,
+        text: drafts.find((d) => d.chapter === c.chapter)?.text || "",
+      }));
+      const r = await ai("style_sheet", { ...ctx, chapters, guide: project.styleGuide || "Chicago Manual of Style" });
+      const existing = project.styleSheet?.entries || [];
+      const have = new Set(existing.map((e) => (e.term || "").trim().toLowerCase()));
+      const fresh = (r.entries || [])
+        .filter((e) => e.term && !have.has(e.term.trim().toLowerCase()))
+        .map((e) => ({ id: seId(), term: e.term || "", ruling: e.ruling || "", category: e.category || "term" }));
+      const styleSheet = {
+        ...(project.styleSheet || {}),
+        summary: r.summary || "",
+        entries: [...existing, ...fresh],
+        inconsistencies: r.inconsistencies || [],
+        updatedAt: new Date().toISOString(),
+      };
+      await post({ op: "updateProject", project: { ...project, styleSheet } });
+      await onReload();
+    });
+  }
+  async function saveStyleSheet(next) {
+    await run("Saving the style sheet", async () => {
+      await post({ op: "updateProject", project: { ...project, styleSheet: { ...next, updatedAt: new Date().toISOString() } } });
+      await onReload();
+    });
+  }
+
+  // ---- launch kit ----
+  async function generateLaunchKit() {
+    await run("Writing the launch kit", async () => {
+      const r = await ai("launch_kit", { ...ctx, title: project.title, outline: project.outline });
+      await post({ op: "updateProject", project: { ...project, launchKit: { ...r, generatedAt: new Date().toISOString() } } });
+      await onReload();
+    });
+  }
   async function updateFootnote(id, source) {
     await run("Saving the source", async () => {
       const footnotes = (currentDraft.footnotes || []).map((f) => (f.id === id ? { ...f, source } : f));
@@ -288,6 +331,7 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
         chapter: chapterObj,
         currentDraft: currentDraft.text,
         styleGuide: project.styleGuide || "Chicago Manual of Style",
+        styleSheet: project.styleSheet?.entries || [],
       });
       setActivePass({ level, runId: Date.now(), summary: r.summary, suggestions: r.suggestions || [], flags: r.flags || [] });
     });
@@ -358,7 +402,9 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
         <button className={`tab ${tab === "shape" ? "on" : ""}`} onClick={() => setTab("shape")}>Shape</button>
         <button className={`tab ${tab === "write" ? "on" : ""}`} onClick={() => setTab("write")}>Write</button>
         <button className={`tab ${tab === "review" ? "on" : ""}`} onClick={() => setTab("review")}>Review</button>
+        <button className={`tab ${tab === "style" ? "on" : ""}`} onClick={() => setTab("style")}>Style</button>
         <button className={`tab ${tab === "export" ? "on" : ""}`} onClick={() => setTab("export")}>Export</button>
+        <button className={`tab ${tab === "launch" ? "on" : ""}`} onClick={() => setTab("launch")}>Launch</button>
       </div>
 
       {err && <div className="banner error">{err}</div>}
@@ -650,6 +696,27 @@ export default function Workspace({ project, sources, drafts, onReload, onBack, 
             <div className="card center muted">No review yet. Draft a chapter or two, then run a developmental review to see how the book is holding together as a whole.</div>
           )}
         </div>
+      )}
+
+      {tab === "style" && (
+        <StyleSheet
+          sheet={project.styleSheet}
+          working={working}
+          building={working && busy.label === "Building the style sheet"}
+          hasDrafts={drafts.length > 0}
+          onBuild={buildStyleSheet}
+          onSave={saveStyleSheet}
+        />
+      )}
+
+      {tab === "launch" && (
+        <LaunchKit
+          kit={project.launchKit}
+          working={working}
+          generating={working && busy.label === "Writing the launch kit"}
+          hasDrafts={drafts.length > 0}
+          onGenerate={generateLaunchKit}
+        />
       )}
 
       {tab === "export" && (() => {

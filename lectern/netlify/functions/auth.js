@@ -3,6 +3,9 @@ import { getUserByEmail, putUser, json } from "./lib/store.js";
 import { hashPassword, verifyPassword, makeSession, sessionCookie, clearCookie, getUser } from "./lib/session.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ADMINS = (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const isAdmin = (email) => ADMINS.includes((email || "").toLowerCase());
+const pub = (u) => ({ email: u.email, name: u.name, isAdmin: isAdmin(u.email) });
 
 export default async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -15,7 +18,7 @@ export default async (req) => {
 
     if (op === "me") {
       const u = getUser(req);
-      return u ? json({ user: { email: u.email, name: u.name } }) : json({ error: "Not signed in" }, 401);
+      return u ? json({ user: pub(u) }) : json({ error: "Not signed in" }, 401);
     }
 
     if (op === "logout") {
@@ -38,7 +41,7 @@ export default async (req) => {
       };
       await putUser(user);
       const token = makeSession(user);
-      return json({ user: { email: user.email, name: user.name } }, 200, { "set-cookie": sessionCookie(req, token) });
+      return json({ user: pub(user) }, 200, { "set-cookie": sessionCookie(req, token) });
     }
 
     if (op === "login") {
@@ -46,7 +49,7 @@ export default async (req) => {
       if (!user || !verifyPassword(password || "", user.password))
         return json({ error: "Email or password is incorrect." }, 401);
       const token = makeSession(user);
-      return json({ user: { email: user.email, name: user.name } }, 200, { "set-cookie": sessionCookie(req, token) });
+      return json({ user: pub(user) }, 200, { "set-cookie": sessionCookie(req, token) });
     }
 
     return json({ error: `Unknown op: ${op}` }, 400);

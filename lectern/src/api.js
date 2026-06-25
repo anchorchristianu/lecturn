@@ -31,6 +31,9 @@ export const getProject = (id) =>
 
 export const post = (body) => fetch("/api/data", opts("POST", body)).then(handle);
 
+// ---- admin (gated server-side by ADMIN_EMAILS) ----
+export const admin = () => fetch("/api/admin", opts("GET")).then(handle);
+
 // ---- ai ----
 // AI work runs in a background function (up to 15 min) that writes its result to
 // storage; we poll for it. This avoids the 10s synchronous-function timeout that

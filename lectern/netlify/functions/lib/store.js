@@ -10,12 +10,48 @@ const projects = () => getStore("projects");
 const sources = () => getStore("sources");
 const drafts = () => getStore("drafts");
 const jobs = () => getStore("jobs");
+const usage = () => getStore("usage");
 
 const b64 = (s) => Buffer.from(s).toString("base64url");
 
 // ---- background jobs ----
 export const putJob = (uid, jobId, data) => jobs().setJSON(`${uid}__${jobId}`, data);
 export const getJob = (uid, jobId) => jobs().get(`${uid}__${jobId}`, { type: "json" });
+
+// ---- AI usage (per user) — recorded by the background worker after each call ----
+export async function addUsage(uid, rec) {
+  let cur = null;
+  try { cur = await usage().get(uid, { type: "json" }); } catch { cur = null; }
+  cur = cur || { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, byModel: {}, byAction: {}, firstAt: new Date().toISOString() };
+  const inn = rec.input || 0, out = rec.output || 0, cr = rec.cacheRead || 0, cw = rec.cacheWrite || 0;
+  cur.calls += 1; cur.input += inn; cur.output += out; cur.cacheRead += cr; cur.cacheWrite += cw;
+  const role = rec.model || "main";
+  const bm = cur.byModel[role] || { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  bm.calls += 1; bm.input += inn; bm.output += out; bm.cacheRead += cr; bm.cacheWrite += cw;
+  cur.byModel[role] = bm;
+  const a = rec.action || "other";
+  cur.byAction[a] = (cur.byAction[a] || 0) + 1;
+  cur.updatedAt = new Date().toISOString();
+  await usage().setJSON(uid, cur);
+}
+
+// ---- admin: enumerate across all users ----
+export async function listUsers() {
+  const { blobs } = await users().list();
+  const items = await Promise.all(blobs.map((b) => users().get(b.key, { type: "json" })));
+  return items.filter(Boolean);
+}
+export async function listAllProjects() {
+  const { blobs } = await projects().list();
+  const items = await Promise.all(blobs.map((b) => projects().get(b.key, { type: "json" })));
+  return items.filter(Boolean);
+}
+export async function getUsageMap() {
+  const { blobs } = await usage().list();
+  const out = {};
+  await Promise.all(blobs.map(async (b) => { const v = await usage().get(b.key, { type: "json" }); if (v) out[b.key] = v; }));
+  return out;
+}
 
 // ---- users ----
 export const getUserByEmail = (email) => users().get(b64(email.toLowerCase()), { type: "json" });

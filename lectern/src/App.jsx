@@ -3,6 +3,7 @@ import Library from "./components/Library.jsx";
 import Intake from "./components/Intake.jsx";
 import Workspace from "./components/Workspace.jsx";
 import Auth from "./components/Auth.jsx";
+import AdminDashboard from "./components/AdminDashboard.jsx";
 import { listProjects, getProject, post, ai, auth } from "./api.js";
 
 export default function App() {
@@ -77,6 +78,11 @@ export default function App() {
           <span className="tag">your voice, bound into books</span>
         </div>
         <div className="row" style={{ gap: "0.75rem" }}>
+          {user.isAdmin && (
+            <button className="btn-ghost" onClick={() => setView(view === "admin" ? "library" : "admin")}>
+              {view === "admin" ? "← Back" : "Admin"}
+            </button>
+          )}
           <a className="btn-ghost" href="/help.html" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>Help</a>
           <span className="muted" style={{ fontSize: "0.9rem" }}>{user.name || user.email}</span>
           <button className="btn-ghost" onClick={logout}>Sign out</button>
@@ -85,7 +91,9 @@ export default function App() {
 
       <main className="container">
         {err && <div className="banner error">{err}</div>}
-        {loading && view === "library" ? (
+        {view === "admin" ? (
+          <AdminDashboard onBack={() => setView("library")} />
+        ) : loading && view === "library" ? (
           <div className="working"><span className="spinner" /> Loading…</div>
         ) : view === "library" ? (
           <Library projects={projects} onOpen={openProject} onNew={() => setView("intake")} />

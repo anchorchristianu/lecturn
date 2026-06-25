@@ -10,7 +10,7 @@
 
 import { ACTIONS } from "./lib/prompts.js";
 import { getUser } from "./lib/session.js";
-import { getJob, putJob } from "./lib/store.js";
+import { getJob, putJob, addUsage } from "./lib/store.js";
 
 const MODELS = {
   main: process.env.MODEL_MAIN || "claude-sonnet-4-6",
@@ -30,7 +30,8 @@ async function callClaude({ system, messages, model, maxTokens }) {
   });
   if (!res.ok) throw new Error(`Claude API ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  const text = data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  return { text, usage: data.usage || {} };
 }
 
 function parseJson(text) {
@@ -70,8 +71,21 @@ export default async (req) => {
     if (!build) throw new Error(`Unknown action: ${job.action}`);
 
     const spec = build(job.payload || {});
-    const text = await callClaude(spec);
+    const out = await callClaude(spec);
+    const text = out.text;
     const result = spec.json ? parseJson(text) : { text };
+
+    try {
+      const u2 = out.usage || {};
+      await addUsage(u.uid, {
+        model: spec.model,
+        action: job.action,
+        input: u2.input_tokens,
+        output: u2.output_tokens,
+        cacheRead: u2.cache_read_input_tokens,
+        cacheWrite: u2.cache_creation_input_tokens,
+      });
+    } catch {}
 
     await putJob(u.uid, jobId, { status: "done", result });
   } catch (err) {

@@ -33,6 +33,11 @@ export const post = (body) => fetch("/api/data", opts("POST", body)).then(handle
 
 // ---- admin (gated server-side by ADMIN_EMAILS) ----
 export const admin = () => fetch("/api/admin", opts("GET")).then(handle);
+export const adminPost = (body) => fetch("/api/admin", opts("POST", body)).then(handle);
+
+// ---- API key (self-service) ----
+export const setMyKey = (apiKey) => auth("setKey", { apiKey });
+export const removeMyKey = () => auth("removeKey");
 
 // ---- ai ----
 // AI work runs in a background function (up to 15 min) that writes its result to

@@ -10,20 +10,21 @@
 
 import { ACTIONS } from "./lib/prompts.js";
 import { getUser } from "./lib/session.js";
-import { getJob, putJob, addUsage } from "./lib/store.js";
+import { getJob, putJob, addUsage, getUserByEmail } from "./lib/store.js";
+import { resolveUserKey } from "./lib/keys.js";
 
 const MODELS = {
   main: process.env.MODEL_MAIN || "claude-sonnet-4-6",
   sort: process.env.MODEL_SORT || "claude-haiku-4-5",
 };
 
-async function callClaude({ system, messages, model, maxTokens }, onPartial) {
+async function callClaude({ system, messages, model, maxTokens }, apiKey, onPartial) {
   const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({ model: MODELS[model] || MODELS.main, max_tokens: maxTokens, system: systemBlocks, messages, stream: true }),
@@ -90,8 +91,10 @@ export default async (req) => {
     if (!job) return new Response(null, { status: 202 });      // nothing queued
     if (job.status === "done") return new Response(null, { status: 202 }); // retry guard
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      await putJob(u.uid, jobId, { status: "error", error: "ANTHROPIC_API_KEY is not set on the server." });
+    const userRec = await getUserByEmail(u.email);
+    const { key: apiKey } = resolveUserKey(userRec);
+    if (!apiKey) {
+      await putJob(u.uid, jobId, { status: "error", error: "No Anthropic API key is set for your account. Add one in Settings to use AI features." });
       return new Response(null, { status: 202 });
     }
 
@@ -101,7 +104,7 @@ export default async (req) => {
     if (!build) throw new Error(`Unknown action: ${job.action}`);
 
     const spec = build(job.payload || {});
-    const out = await callClaude(spec, async (partial) => {
+    const out = await callClaude(spec, apiKey, async (partial) => {
       // Publish in-progress text so the client can show the draft as it's written.
       try { await putJob(u.uid, jobId, { status: "running", partial }); } catch {}
     });

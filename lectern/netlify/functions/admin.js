@@ -2,7 +2,8 @@
 // Gated by the ADMIN_EMAILS env var (comma-separated). Returns overall and
 // per-user stats: projects, % complete, words, and AI usage / estimated cost.
 import { getUser } from "./lib/session.js";
-import { json, listUsers, listAllProjects, getUsageMap } from "./lib/store.js";
+import { json, listUsers, listAllProjects, getUsageMap, getUserByEmail, putUser } from "./lib/store.js";
+import { validateKey } from "./lib/keys.js";
 
 const ADMINS = (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
@@ -36,6 +37,31 @@ export default async (req) => {
   if (ADMINS.length === 0) return json({ error: "No admins are configured. Set ADMIN_EMAILS on the server." }, 403);
   if (!ADMINS.includes((u.email || "").toLowerCase())) return json({ error: "Forbidden" }, 403);
 
+  // ---- admin mutations: manage a user's coverage and API key ----
+  if (req.method === "POST") {
+    const body = await req.json().catch(() => ({}));
+    const target = await getUserByEmail(body.email || "");
+    if (!target) return json({ error: "No account uses that email." }, 404);
+    if (body.op === "setUserCovered") {
+      target.covered = !!body.covered;
+      await putUser(target);
+      return json({ ok: true });
+    }
+    if (body.op === "setUserKey") {
+      const check = await validateKey(body.apiKey);
+      if (!check.ok) return json({ error: check.error }, 400);
+      target.apiKey = (body.apiKey || "").trim();
+      await putUser(target);
+      return json({ ok: true });
+    }
+    if (body.op === "clearUserKey") {
+      target.apiKey = "";
+      await putUser(target);
+      return json({ ok: true });
+    }
+    return json({ error: "Unknown op" }, 400);
+  }
+
   const [users, allProjects, usageMap] = await Promise.all([listUsers(), listAllProjects(), getUsageMap()]);
 
   const byUser = {};
@@ -50,6 +76,8 @@ export default async (req) => {
       email: usr.email,
       name: usr.name || "",
       createdAt: usr.createdAt || null,
+      covered: !!usr.covered,
+      hasKey: !!(usr.apiKey && usr.apiKey.length),
       projects: ps.length,
       avgPct,
       words,

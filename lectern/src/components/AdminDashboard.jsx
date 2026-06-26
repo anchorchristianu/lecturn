@@ -1,6 +1,6 @@
 // src/components/AdminDashboard.jsx
 import { useEffect, useState } from "react";
-import { admin } from "../api.js";
+import { admin, adminPost } from "../api.js";
 
 const fmt = (n) => (n || 0).toLocaleString();
 function tok(n) {
@@ -21,14 +21,29 @@ function Stat({ label, value, sub }) {
   );
 }
 
-function UserRow({ u }) {
+function UserRow({ u, onChanged }) {
   const [open, setOpen] = useState(false);
+  const [manage, setManage] = useState(false);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+
+  const keyStatus = u.hasKey ? "Own key" : u.covered ? "Covered" : "No key";
+
+  async function act(name, body) {
+    setErr(""); setBusy(name);
+    try { await adminPost(body); setKey(""); await onChanged(); }
+    catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(""); }
+  }
+
   return (
     <>
       <tr style={{ borderTop: "1px solid var(--line)" }}>
         <td style={{ padding: "0.6rem 0.5rem" }}>
           <div style={{ fontWeight: 600 }}>{u.name || u.email}</div>
           {u.name && <div className="muted" style={{ fontSize: "0.8rem" }}>{u.email}</div>}
+          <span className="status" style={{ fontSize: "0.68rem", marginTop: "0.2rem", display: "inline-block" }}>{keyStatus}</span>
         </td>
         <td style={{ textAlign: "center" }}>{u.projects}</td>
         <td style={{ textAlign: "center" }}>{u.avgPct}%</td>
@@ -37,13 +52,57 @@ function UserRow({ u }) {
         <td style={{ textAlign: "right" }}>{tok(u.inputTokens)} / {tok(u.outputTokens)}</td>
         <td style={{ textAlign: "right" }}>{money(u.estCost)}</td>
         <td style={{ textAlign: "center" }}>
-          {u.projects > 0 && (
-            <button className="btn btn-ghost" style={{ padding: "0.1rem 0.5rem", fontSize: "0.8rem" }} onClick={() => setOpen((o) => !o)}>
-              {open ? "Hide" : "Books"}
+          <div className="row" style={{ gap: "0.3rem", justifyContent: "center" }}>
+            {u.projects > 0 && (
+              <button className="btn btn-ghost" style={{ padding: "0.1rem 0.5rem", fontSize: "0.8rem" }} onClick={() => setOpen((o) => !o)}>
+                {open ? "Hide" : "Books"}
+              </button>
+            )}
+            <button className="btn btn-ghost" style={{ padding: "0.1rem 0.5rem", fontSize: "0.8rem" }} onClick={() => setManage((m) => !m)}>
+              {manage ? "Close" : "Key"}
             </button>
-          )}
+          </div>
         </td>
       </tr>
+
+      {manage && (
+        <tr style={{ background: "var(--surface-2)" }}>
+          <td colSpan={8} style={{ padding: "0.7rem 0.5rem 0.8rem 1.4rem" }}>
+            <div className="stack" style={{ gap: "0.5rem", maxWidth: 620 }}>
+              <div className="row" style={{ gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: "0.9rem" }}>
+                  <b>Billing:</b>{" "}
+                  {u.hasKey ? "uses their own Anthropic key" : u.covered ? "covered by your server key" : "no key — AI features are off for them"}
+                </span>
+                <span className="spacer" />
+                <label className="row" style={{ gap: "0.35rem", fontSize: "0.88rem", cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!u.covered} onChange={() => act("cov", { op: "setUserCovered", email: u.email, covered: !u.covered })} disabled={!!busy} />
+                  Covered by Lectern
+                </label>
+              </div>
+              <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+                <input
+                  type="password" value={key} onChange={(e) => setKey(e.target.value)}
+                  placeholder="Set their API key (sk-ant-...)" autoComplete="off" spellCheck={false}
+                  style={{ flex: "2 1 240px", padding: "0.4rem 0.6rem", border: "1px solid var(--line-strong)", borderRadius: 8, font: "inherit", background: "var(--surface)" }}
+                  disabled={!!busy}
+                />
+                <button className="btn btn-secondary" style={{ padding: "0.3rem 0.7rem", fontSize: "0.85rem" }} onClick={() => act("key", { op: "setUserKey", email: u.email, apiKey: key.trim() })} disabled={!!busy || !key.trim()}>
+                  {busy === "key" ? "Verifying…" : "Set key"}
+                </button>
+                {u.hasKey && (
+                  <button className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: "0.85rem" }} onClick={() => act("clear", { op: "clearUserKey", email: u.email })} disabled={!!busy}>
+                    Clear key
+                  </button>
+                )}
+              </div>
+              <span className="muted" style={{ fontSize: "0.8rem" }}>A key you set here is verified with Anthropic, stored securely, and never shown again. Their own key always takes precedence over coverage.</span>
+              {err && <span style={{ color: "var(--danger, #b3261e)", fontSize: "0.85rem" }}>{err}</span>}
+            </div>
+          </td>
+        </tr>
+      )}
+
       {open && u.projectList.map((p) => (
         <tr key={p.id} style={{ background: "var(--surface-2)" }}>
           <td style={{ padding: "0.35rem 0.5rem 0.35rem 1.4rem" }} colSpan={2}>
@@ -112,7 +171,7 @@ export default function AdminDashboard({ onBack }) {
             </tr>
           </thead>
           <tbody>
-            {data.users.map((u) => <UserRow key={u.email} u={u} />)}
+            {data.users.map((u) => <UserRow key={u.email} u={u} onChanged={load} />)}
             {data.users.length === 0 && (
               <tr><td colSpan={8} className="muted" style={{ padding: "0.8rem 0.5rem" }}>No users yet.</td></tr>
             )}

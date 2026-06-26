@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Library from "./components/Library.jsx";
 import Intake from "./components/Intake.jsx";
 import Workspace from "./components/Workspace.jsx";
@@ -12,15 +12,44 @@ export default function App() {
   const [view, setView] = useState("library");
   const [projects, setProjects] = useState([]);
   const [current, setCurrent] = useState(null);
+  const [wsTab, setWsTab] = useState("sources"); // active workspace tab, mirrored to URL
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+
+  // Captured once at first render, before any effect can rewrite the hash —
+  // this is the screen the user refreshed on.
+  const initialHashRef = useRef(typeof window !== "undefined" ? window.location.hash : "");
+  const restoredRef = useRef(false);
 
   // Check existing session on load.
   useEffect(() => {
     auth("me").then(({ user }) => setUser(user)).catch(() => setUser(null));
   }, []);
 
-  useEffect(() => { if (user) loadLibrary(); }, [user]);
+  // Once signed in: load the library and restore whatever screen the URL points
+  // at (so a browser refresh stays put instead of bouncing home).
+  useEffect(() => {
+    if (!user) return;
+    loadLibrary();
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const [seg, id, tab] = (initialHashRef.current || "").replace(/^#\/?/, "").split("/");
+    if (seg === "admin" && user.isAdmin) setView("admin");
+    else if (seg === "settings") setView("settings");
+    else if (seg === "new") setView("intake");
+    else if (seg === "book" && id) openProject(id, tab);
+  }, [user]);
+
+  // Mirror the current screen into the URL hash so refresh / bookmarking works.
+  useEffect(() => {
+    if (!user) return;
+    let hash = "#/";
+    if (view === "admin") hash = "#/admin";
+    else if (view === "settings") hash = "#/settings";
+    else if (view === "intake") hash = "#/new";
+    else if (view === "workspace" && current?.project?.id) hash = `#/book/${current.project.id}/${wsTab || "sources"}`;
+    if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
+  }, [view, current, wsTab, user]);
 
   async function loadLibrary() {
     setLoading(true); setErr("");
@@ -31,9 +60,14 @@ export default function App() {
     } finally { setLoading(false); }
   }
 
-  async function openProject(id) {
+  async function openProject(id, tab) {
     setLoading(true); setErr("");
-    try { setCurrent(await getProject(id)); setView("workspace"); }
+    try {
+      const c = await getProject(id);
+      setWsTab(tab || "sources");
+      setCurrent(c);
+      setView("workspace");
+    }
     catch (e) { setErr(String(e.message || e)); }
     finally { setLoading(false); }
   }
@@ -125,10 +159,13 @@ export default function App() {
           <Intake onCreate={createProject} onCancel={() => setView("library")} />
         ) : current ? (
           <Workspace
+            key={current.project.id}
             project={current.project}
             sources={current.sources}
             drafts={current.drafts}
             user={user}
+            initialTab={wsTab}
+            onTabChange={setWsTab}
             onReload={reloadCurrent}
             onBack={backToLibrary}
             onDeleted={backToLibrary}

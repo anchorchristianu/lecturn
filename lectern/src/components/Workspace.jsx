@@ -16,6 +16,7 @@ import { newFootnoteId, numberMap, insertAfterAnchor, insertAt, removeMarker, re
 import { compileDocx, compileMarkdown, safeName } from "../compile.js";
 
 const SOURCE_TYPES = ["walk recording", "sermon transcript", "talk / lecture", "interview", "notes / article", "outline / framework"];
+const WS_TABS = ["sources", "shape", "write", "review", "style", "export", "launch", "team"];
 
 // Pull the in-progress "draft" string out of partial (incomplete) JSON so the
 // chapter can be shown as it streams. Robust to mid-stream truncation.
@@ -44,8 +45,8 @@ function extractDraftText(partial) {
 const trimForPrompt = (srcs) =>
   (srcs || []).map((s) => ({ title: s.title, type: s.type, text: s.text, summary: s.summary, stories: s.stories, chapters: s.chapters }));
 
-export default function Workspace({ project, sources, drafts, user, onReload, onBack, onDeleted }) {
-  const [tab, setTab] = useState("sources");
+export default function Workspace({ project, sources, drafts, user, initialTab, onTabChange, onReload, onBack, onDeleted }) {
+  const [tab, setTab] = useState(WS_TABS.includes(initialTab) ? initialTab : "sources");
   const [err, setErr] = useState("");
   // busy tracks BOTH a label (for the global indicator) and an id (which item
   // is being worked on), so each card/button can show its own spinner.
@@ -95,6 +96,9 @@ export default function Workspace({ project, sources, drafts, user, onReload, on
     try { await fn(); } catch (e) { setErr(String(e.message || e)); }
     finally { setBusy({ label: "", id: "" }); }
   };
+
+  // Report the active tab up so the URL can reflect it (refresh stays on the tab).
+  useEffect(() => { onTabChange?.(tab); }, [tab]);
 
   // ---- sources ----
   async function addSource(s) {

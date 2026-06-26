@@ -120,7 +120,7 @@ function UserRow({ u, onChanged }) {
   );
 }
 
-export default function AdminDashboard({ onBack }) {
+export default function AdminDashboard({ onBack, onUserChanged }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
@@ -171,7 +171,7 @@ export default function AdminDashboard({ onBack }) {
             </tr>
           </thead>
           <tbody>
-            {data.users.map((u) => <UserRow key={u.email} u={u} onChanged={load} />)}
+            {data.users.map((u) => <UserRow key={u.email} u={u} onChanged={async () => { await load(); onUserChanged?.(); }} />)}
             {data.users.length === 0 && (
               <tr><td colSpan={8} className="muted" style={{ padding: "0.8rem 0.5rem" }}>No users yet.</td></tr>
             )}

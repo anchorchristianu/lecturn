@@ -59,7 +59,17 @@ export default function App() {
     await openProject(project.id);
   }
 
-  function backToLibrary() { setCurrent(null); setView("library"); loadLibrary(); }
+  function backToLibrary() { setCurrent(null); setView("library"); loadLibrary(); refreshMe(); }
+
+  // Re-check coverage / key status (e.g. after an admin toggles coverage) so the
+  // "add a key" banner reflects reality without a full page reload. Only updates
+  // state when something relevant changed, to avoid needless reloads.
+  async function refreshMe() {
+    try {
+      const { user: u } = await auth("me");
+      if (u) setUser((prev) => (prev && u.covered === prev.covered && u.hasKey === prev.hasKey && u.isAdmin === prev.isAdmin ? prev : u));
+    } catch { /* ignore */ }
+  }
 
   async function logout() {
     await auth("logout").catch(() => {});
@@ -104,7 +114,7 @@ export default function App() {
           </div>
         )}
         {view === "admin" ? (
-          <AdminDashboard onBack={() => setView("library")} />
+          <AdminDashboard onBack={() => { setView("library"); refreshMe(); }} onUserChanged={refreshMe} />
         ) : view === "settings" ? (
           <Settings user={user} onUpdated={setUser} onBack={() => setView("library")} />
         ) : loading && view === "library" ? (

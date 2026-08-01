@@ -300,6 +300,19 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
     });
   }
 
+  // Generate editor's notes on the chapter's CURRENT text (imported or written
+  // by hand) — the same kind of notes the coach leaves when it drafts. Saves
+  // them onto the draft so they show in the Editor's notes card.
+  async function reviewChapter() {
+    if (!currentDraft) return;
+    await run("Reviewing", async () => {
+      const r = await ai("review_notes", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text });
+      const resp = await post({ op: "saveDraft", draft: { ...currentDraft, notes: r.notes || [] } });
+      if (resp?.draft) onSaved?.(resp.draft);
+      else await onReload();
+    });
+  }
+
   // ---- soft per-chapter lock helpers ----
   const lockChapter = (chapter) => post({ op: "lockChapter", projectId: project.id, chapter });
   const unlockChapter = (chapter) => post({ op: "unlockChapter", projectId: project.id, chapter }).catch(() => {});
@@ -979,12 +992,18 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                 </div>
               ) : (
                 <>
-                  {currentDraft.notes?.length > 0 && (
-                    <div className="card">
-                      <h3>Editor's notes</h3>
-                      <ul className="note-list">{currentDraft.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+                  <div className="card">
+                    <div className="row" style={{ marginBottom: currentDraft.notes?.length ? "0.6rem" : 0 }}>
+                      <h3 style={{ margin: 0 }}>Editor's notes</h3>
+                      <span className="spacer" />
+                      <button className="btn btn-secondary" onClick={reviewChapter} disabled={working}>
+                        {working && busy.label === "Reviewing" ? <Spin>Reviewing…</Spin> : currentDraft.notes?.length ? "Refresh notes" : "Get editor's notes"}
+                      </button>
                     </div>
-                  )}
+                    {currentDraft.notes?.length > 0
+                      ? <ul className="note-list">{currentDraft.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+                      : <p className="muted" style={{ margin: 0, fontSize: "0.9rem" }}>No notes yet — run a review to get editorial notes on this chapter's text.</p>}
+                  </div>
 
                   <div className="write-split">
                     <div className="card">

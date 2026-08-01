@@ -32,7 +32,10 @@ async function extractPdf(buf) {
 }
 
 async function extractDocx(buf) {
-  const mammoth = (await import("mammoth")).default;
+  // Import mammoth's self-contained *browser* build explicitly. The default
+  // "mammoth" entry pulls in the Node unzip, which rejects an ArrayBuffer with
+  // "Could not find file in options" in the browser — the docx upload failure.
+  const mammoth = (await import("mammoth/mammoth.browser.js")).default;
   const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
   return (value || "").trim();
 }

@@ -274,3 +274,8 @@ button { font-family: var(--ui); cursor: pointer; }
 @media (max-width: 900px) {
   .workspace-wide { width: 100%; left: auto; transform: none; }
 }
+
+/* ---- Write tab: "how do you want to start this chapter?" ---- */
+.write-start { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.start-option { display: flex; flex-direction: column; gap: 0.4rem; }
+@media (max-width: 640px) { .write-start { grid-template-columns: 1fr; } }

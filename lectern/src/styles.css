@@ -311,3 +311,18 @@ button { font-family: var(--ui); cursor: pointer; }
 }
 .note-list li .note-discuss:hover { text-decoration: underline; }
 .note-list li .note-discuss:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
+
+/* ---- Note actions (discuss / find sources) ---- */
+.note-actions { display: flex; gap: 1.1rem; margin-top: 0.25rem; }
+.note-actions .note-discuss { margin-top: 0; }
+
+/* ---- Research panel ---- */
+.research-modal { max-width: 720px; max-height: 86vh; overflow-y: auto; }
+.research-source { border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 0.9rem; }
+.rs-head { display: flex; align-items: flex-start; gap: 0.8rem; }
+.rs-title { font-family: var(--display); font-size: 1.08rem; line-height: 1.3; }
+.rs-meta { color: var(--muted); font-size: 0.82rem; margin-top: 0.15rem; }
+.rs-line { margin: 0.5rem 0 0; font-size: 0.9rem; }
+.rs-line b { color: var(--ink); }
+.rs-cite { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--muted); font-style: italic; }
+.rs-url { display: inline-block; margin-top: 0.4rem; font-size: 0.8rem; color: var(--pine); word-break: break-all; }

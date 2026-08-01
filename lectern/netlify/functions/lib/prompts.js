@@ -577,6 +577,13 @@ Keep it to what fills the gap. Do not include a ⟦DRAFT⟧ block until you actu
   return { system, messages: thread, model: "main", maxTokens: 1000, json: false };
 }
 
+// A short book brief generated from an already-written manuscript (import flow).
+function summarizeManuscript({ text }) {
+  const system = `You write a short book brief. Given an excerpt from an author's finished manuscript, describe in 2–4 plain, warm sentences what the book is about, who it's for, and what a reader gains from it. Use only what the text supports — do not invent specifics. Return ONLY the brief itself: no preamble, no labels, no quotation marks.`;
+  const user = `Manuscript excerpt:\n\n"""\n${String(text || "").slice(0, 9000)}\n"""\n\nWrite the brief.`;
+  return { system, messages: [{ role: "user", content: user }], model: "sort", maxTokens: 400, json: false };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -591,4 +598,5 @@ export const ACTIONS = {
   style_sheet: (p) => styleSheet(p),
   launch_kit: (p) => launchKit(p),
   discuss: (p) => discuss(p),
+  summarize: (p) => summarizeManuscript(p),
 };

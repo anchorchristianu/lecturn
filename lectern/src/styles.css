@@ -352,3 +352,9 @@ button { font-family: var(--ui); cursor: pointer; }
 .resolved-notes { margin: 0.5rem 0 1.2rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
 .inline-note.resolved { opacity: 0.62; border-left-color: var(--line-strong); }
 .inline-note.resolved .inline-note-text { text-decoration: line-through; text-decoration-color: var(--muted); }
+
+/* ---- Unplaced-source insert strip (in the editor) ---- */
+.unplaced-strip { border: 1px dashed var(--line-strong); border-radius: 10px; padding: 0.6rem 0.8rem; background: var(--paper-2, #f3efe6); }
+.unplaced-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.3rem 0; }
+.unplaced-row + .unplaced-row { border-top: 1px solid var(--line); }
+.unplaced-src { flex: 1; font-size: 0.85rem; color: var(--ink); }

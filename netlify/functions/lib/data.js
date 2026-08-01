@@ -64,7 +64,7 @@ export default async (req) => {
           // Preserve author assignments (keyed by chapter name) across content edits.
           const prevAuthor = Object.fromEntries((server.outline || []).map((c) => [c.chapter, c.authorId]));
           for (const k of CONTENT_FIELDS) if (k in incoming) server[k] = incoming[k];
-          server.outline = (server.outline || []).map((c) => ({ ...c, authorId: c.authorId || prevAuthor[c.chapter] || server.ownerId }));
+          server.outline = (server.outline || []).map((c) => ({ ...c, authorId: prevAuthor[c.chapter] || server.ownerId }));
           return json({ project: { ...(await putProjectRaw(server)), myRole: r.role } });
         }
         case "deleteProject": {

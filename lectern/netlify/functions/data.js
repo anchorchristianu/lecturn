@@ -74,6 +74,13 @@ export default async (req) => {
           await deleteProjectById(body.id);
           return json({ ok: true });
         }
+        case "archiveProject": {
+          const r = await resolve(body.id);
+          if (r.error) return r.error;
+          if (r.role !== "owner") return json({ error: "Only the owner can archive this book" }, 403);
+          const updated = { ...r.project, archived: !!body.archived };
+          return json({ project: { ...(await putProjectRaw(updated)), myRole: r.role } });
+        }
 
         // ---- collaborators (owner-gated, except self-service voice) ----
         case "inviteMember": {

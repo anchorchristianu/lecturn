@@ -115,7 +115,7 @@ Return ONLY valid JSON in this shape:
 }
 
 // SHAPE → propose/refine the outline from everything filed so far, name gaps.
-export function shapeOutline({ brief, voiceSample, outline, sources }) {
+export function shapeOutline({ brief, voiceSample, outline, sources, instruction }) {
   const system = projectContext({ brief, voiceSample }) +
     `\n\nYou are shaping the book's structure. Propose a clean working outline ` +
     `that fits the material the author has actually produced, and name what is ` +
@@ -123,7 +123,13 @@ export function shapeOutline({ brief, voiceSample, outline, sources }) {
     `Some material is marked [STRUCTURE] — these are the author's existing ` +
     `outlines, frameworks, or series/lecture notes. Treat them as scaffolding: ` +
     `let them strongly guide the chapter order, groupings, and any framework or ` +
-    `acronym the author already uses. Do not flatten that structure; build on it.`;
+    `acronym the author already uses. Do not flatten that structure; build on it.` +
+    (instruction
+      ? `\n\nThe author has given you a direction for THIS revision. Follow it — their ` +
+        `instruction outranks your own preferences. Keep everything about the current ` +
+        `outline that they didn't ask to change, and keep the result honest to the ` +
+        `material (don't invent chapters the material can't support; mark thin ones).`
+      : "");
 
   const isStructural = (t) => /outline|framework|notes/i.test(t || "");
   const filed = (sources || [])
@@ -136,7 +142,7 @@ export function shapeOutline({ brief, voiceSample, outline, sources }) {
 
   const currentOutline = (outline || []).map((c, i) => `${i + 1}. ${c.chapter} — ${c.purpose || ""}`).join("\n") || "(none)";
 
-  const user = `CURRENT OUTLINE:
+  const user = `${instruction ? `THE AUTHOR'S DIRECTION FOR THIS REVISION (follow this):\n${instruction}\n\n` : ""}CURRENT OUTLINE:
 ${currentOutline}
 
 MATERIAL FILED SO FAR:
@@ -515,6 +521,62 @@ Write the launch kit. Return ONLY valid JSON in this shape:
   return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 2500, json: true };
 }
 
+// Multi-turn coaching conversation for a single chapter. Unlike every other
+// action this is NOT json — it returns plain assistant text, and it carries the
+// running conversation in `messages`. Its whole job is to draw material out of
+// the author and help shape it in their voice; it must never invent facts,
+// stats, quotes, or anecdotes. When the author has given enough, it offers a
+// finished passage wrapped in ⟦DRAFT⟧…⟦/DRAFT⟧ that the client can insert.
+function discuss({ chapter, brief, voiceSample, draft, notes, messages, authorName }) {
+  const chapterTitle = typeof chapter === "string" ? chapter : (chapter?.chapter || "this chapter");
+  const who = authorName || "the author";
+  const editorNotes = Array.isArray(notes) && notes.length
+    ? notes.map((n) => `- ${n}`).join("\n")
+    : "(none recorded)";
+
+  const system = `You are the writing coach built into Lectern, a tool that helps an author turn their OWN spoken material into a book. You are working with ${who} on a single chapter. You are an editor and coach — never the author.
+
+# The chapter
+Title: "${chapterTitle}".
+This chapter is written in ${who}'s voice. Match their register from the voice sample below; never flatten it into generic prose.
+
+Book brief:
+${brief || "(no brief provided)"}
+
+Voice sample — how ${who} actually sounds, match this:
+${voiceSample ? `"""${voiceSample}"""` : "(no voice sample available yet)"}
+
+# Current draft (for grounding — don't quote it back wholesale)
+"""
+${draft || "(no draft yet for this chapter)"}
+"""
+
+# Editor's notes still open on this chapter
+${editorNotes}
+
+# Your rules — these are absolute
+1. NEVER invent facts, statistics, study findings, figures, quotes, dates, or anecdotes — not even plausible-sounding ones. You do not have ${who}'s memories; only they do. If a point needs a number or a story they haven't given you, you may NOT manufacture it.
+2. You cannot browse the web. If they ask you to "find statistics" or "find real stories to cite," say so plainly, then help: name the specific, credible kinds of sources worth checking for this topic, say what to search for, and offer to leave a clearly-marked [GAP: exactly what to find and cite] placeholder so nothing unverified slips into the book. Never fabricate a citation. (A later version of Lectern will fetch real, citable sources here for them to verify.)
+3. Preserve ${who}'s voice. Any sentence you propose must be built ONLY from what they have actually told you, and must sound like them — not like an AI.
+4. Draw material OUT of them. Prefer one good, specific question over a paragraph of advice. Ask ONE question at a time. Reflect back what they give you and help shape it.
+
+# How to respond
+- Warm, brief, plain language. The author may be older and non-technical. No jargon, no bulleted lectures. A few sentences per turn.
+- Default to letting them lead. But if they seem unsure or stuck, or ask for help getting started, offer two or three concrete directions they could choose from — angles or starting questions drawn from the open note and their own world. Frame them as on-ramps to pull out THEIR memory, never as content you will write for them.
+- When — and only when — they have given you enough real material that a passage is genuinely ready, offer to write it into the draft. Present that final passage wrapped EXACTLY like this, on their own lines:
+⟦DRAFT⟧
+(the passage, in ${who}'s voice, built only from what they told you)
+⟦/DRAFT⟧
+Keep it to what fills the gap. Do not include a ⟦DRAFT⟧ block until you actually have their material — if you're still drawing it out, just ask your next question.
+- An honest [GAP] placeholder is always better than filler or invention.`;
+
+  const thread = Array.isArray(messages) && messages.length
+    ? messages
+    : [{ role: "user", content: "Let's work on this chapter." }];
+
+  return { system, messages: thread, model: "main", maxTokens: 1000, json: false };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -528,4 +590,5 @@ export const ACTIONS = {
   format_citation: (p) => formatCitation(p),
   style_sheet: (p) => styleSheet(p),
   launch_kit: (p) => launchKit(p),
+  discuss: (p) => discuss(p),
 };

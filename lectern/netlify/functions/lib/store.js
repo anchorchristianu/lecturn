@@ -5,7 +5,7 @@
 // by every collaborator. A per-user membership index keeps "your library" fast.
 
 import { getStore } from "@netlify/blobs";
-import { countWords } from "./clean.js";
+import { countWords, tidyDraft, hashText } from "./clean.js";
 
 const users = () => getStore("users");
 const projects = () => getStore("projects");
@@ -15,6 +15,7 @@ const jobs = () => getStore("jobs");
 const usage = () => getStore("usage");
 const memberships = () => getStore("memberships");
 const locks = () => getStore("locks");
+const threads = () => getStore("threads");
 
 const b64 = (s) => Buffer.from(String(s)).toString("base64url");
 
@@ -154,6 +155,55 @@ export async function listDrafts(projectId) {
   return items.filter(Boolean);
 }
 export async function putDraft(d) { d.updatedAt = new Date().toISOString(); await drafts().setJSON(`${d.projectId}__${d.id}`, d); return d; }
+
+// Coaching conversations, one per (project, chapter). The chapter title is
+// hashed so it's a safe blob key. We keep only the most recent turns so a long
+// conversation can't grow without bound (and to keep prompt cost in check).
+const THREAD_CAP = 40;
+const threadKey = (projectId, chapter) => `${projectId}__${hashText(String(chapter || ""))}`;
+export async function getThread(projectId, chapter) {
+  try {
+    const t = await threads().get(threadKey(projectId, chapter), { type: "json" });
+    return t && Array.isArray(t.messages) ? t.messages : [];
+  } catch { return []; }
+}
+export async function putThread(projectId, chapter, messages) {
+  const trimmed = (Array.isArray(messages) ? messages : []).slice(-THREAD_CAP);
+  await threads().setJSON(threadKey(projectId, chapter), {
+    projectId, chapter, messages: trimmed, updatedAt: new Date().toISOString(),
+  });
+  return trimmed;
+}
+export async function getDraftByChapter(projectId, chapter) {
+  const all = await listDrafts(projectId);
+  return all.find((d) => d.chapter === chapter) || null;
+}
+
+// Canonical draft persistence — the single place a draft is written, used by
+// BOTH the sync data.js `saveDraft` op and the AI background worker. Having the
+// worker persist through the same helper means a finished chapter is saved
+// server-side even if the client times out or the browser closes, so completed
+// work can never be "erased" by a slow-client abandon.
+export async function persistDraft(input) {
+  const text = tidyDraft(input.text || "");
+  const d = {
+    id: input.id || crypto.randomUUID(),
+    projectId: input.projectId,
+    chapter: input.chapter,
+    text,
+    words: countWords(text.replace(/\[\^fn_[a-z0-9]+\]/g, "")),
+    notes: input.notes || [],
+    footnotes: input.footnotes || [],
+    flags: input.flags || [],
+    factcheckSummary: input.factcheckSummary || "",
+    polished: input.polished || false,
+    version: (input.version || 0) + 1,
+    authorId: input.authorId || undefined,
+  };
+  await putDraft(d);
+  await refreshCounts(input.projectId);
+  return d;
+}
 
 export async function refreshCounts(projectId) {
   const [project, srcs, drs] = await Promise.all([getProjectById(projectId), listSources(projectId), listDrafts(projectId)]);

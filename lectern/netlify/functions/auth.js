@@ -89,6 +89,29 @@ export default async (req) => {
       return json({ user: pub(user) }, 200, { "set-cookie": sessionCookie(req, token) });
     }
 
+    if (op === "requestReset") {
+      // A user who can't sign in asks for help. There is no email provider wired
+      // up, so recovery is admin-assisted: if the account is real we flag it so an
+      // admin can issue a new password from the dashboard. This endpoint is
+      // unauthenticated, so it must NEVER reveal whether an account exists — the
+      // response is identical either way (no account enumeration).
+      if (!EMAIL_RE.test(email || "")) return json({ error: "Enter the email you sign in with." }, 400);
+      const rec = await getUserByEmail(email);
+      if (rec) {
+        // Debounce so this open endpoint can't be used to hammer storage: only
+        // record a fresh request if the last one is older than 5 minutes.
+        const last = rec.resetRequestedAt ? Date.parse(rec.resetRequestedAt) : 0;
+        if (!last || Date.now() - last > 5 * 60 * 1000) {
+          rec.resetRequestedAt = new Date().toISOString();
+          await putUser(rec);
+        }
+      }
+      return json({
+        ok: true,
+        message: "Thanks. If an account uses that email, your administrator can set a new password for it and pass it along to you. Your sign-in name is your email address.",
+      });
+    }
+
     return json({ error: `Unknown op: ${op}` }, 400);
   } catch (err) {
     return json({ error: String(err?.message || err) }, 500);

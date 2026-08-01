@@ -112,6 +112,11 @@ export default function App() {
     await loadLibrary();
     await openProject(project.id);
   }
+  async function importProject({ title, brief, chapters, voiceSample }) {
+    const { project } = await post({ op: "importProject", title, brief, chapters, voiceSample });
+    await loadLibrary();
+    await openProject(project.id, "write"); // chapters are already drafted — go straight to writing
+  }
 
   function backToLibrary() { setCurrent(null); setView("library"); loadLibrary(); refreshMe(); }
 
@@ -176,7 +181,7 @@ export default function App() {
         ) : view === "library" ? (
           <Library projects={projects} user={user} onOpen={openProject} onNew={() => setView("intake")} onArchive={archiveProjectFromLibrary} onDelete={deleteProjectFromLibrary} />
         ) : view === "intake" ? (
-          <Intake onCreate={createProject} onCancel={() => setView("library")} />
+          <Intake onCreate={createProject} onImport={importProject} onCancel={() => setView("library")} />
         ) : current ? (
           <Workspace
             key={current.project.id}

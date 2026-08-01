@@ -285,3 +285,19 @@ button { font-family: var(--ui); cursor: pointer; }
 .bookcard-actions .btn { padding: 0.3rem 0.7rem; font-size: 0.85rem; min-height: auto; }
 .bookcard.archived { opacity: 0.72; }
 .bookcard.archived:hover { opacity: 1; }
+
+/* ---- New-book chooser + manuscript import ---- */
+.start-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.choice-card { text-align: left; cursor: pointer; display: block; width: 100%; }
+.choice-card:hover { border-color: var(--line-strong); }
+.choice-card h2 { margin: 0 0 0.5rem; font-size: 1.4rem; }
+.choice-card p { color: var(--muted); margin: 0 0 1rem; font-size: 0.95rem; }
+.choice-go { color: var(--pine); font-weight: 600; }
+@media (max-width: 640px) { .start-choice { grid-template-columns: 1fr; } }
+
+.import-chapters { margin-top: 0.6rem; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; max-height: 340px; overflow-y: auto; }
+.import-chapter { display: flex; align-items: center; gap: 0.7rem; padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--line); }
+.import-chapter:last-child { border-bottom: none; }
+.import-chapter .num { font-family: var(--display); color: var(--brass); font-size: 1rem; min-width: 1.7rem; }
+.import-chapter .ic-title { flex: 1; font-family: var(--display); font-size: 1.02rem; }
+.import-chapter .ic-words { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }

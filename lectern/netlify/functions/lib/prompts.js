@@ -594,6 +594,28 @@ function reviewNotes({ brief, voiceSample, chapter, currentDraft }) {
   return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 1500, json: true };
 }
 
+// Research a point on the OPEN WEB for credible, citable sources. Uses the
+// Anthropic web_search tool, so the URLs come from real search results.
+function research({ topic, brief, chapterTitle }) {
+  const system =
+    `You are a meticulous research librarian helping an author find CREDIBLE, CITABLE sources on the open web to support a specific point in their book. Use the web_search tool to actually search — do not rely on memory.\n\n` +
+    `Return ONLY sources you genuinely found in the search results. NEVER invent or guess a title, author, publisher, date, or URL — a fabricated citation is far worse than none. If nothing solid turns up, return an empty list and say so.\n\n` +
+    `Prefer authoritative, verifiable sources: books, peer-reviewed or scholarly work, primary and official documents, reputable news and reference works, and recognized experts. Avoid content farms, SEO blogs, and anything you can't stand behind. For each source, say briefly how it supports the point and why it's trustworthy, and format a Chicago Manual of Style NOTE (footnote form) from only the details you actually have.`;
+  const ctx = [brief ? `Book: ${brief}` : "", chapterTitle ? `Chapter: ${chapterTitle}` : ""].filter(Boolean).join("\n");
+  const user =
+    `${ctx ? ctx + "\n\n" : ""}Point to support / research question:\n"""${String(topic || "").slice(0, 1200)}"""\n\n` +
+    `Search the web, then return ONLY valid JSON — no prose before or after:\n` +
+    `{\n  "sources": [\n    { "title": "", "author": "", "publisher": "", "date": "", "url": "", "supports": "how this source supports the point", "credibility": "why it can be trusted", "citation": "the source as a Chicago note" }\n  ],\n  "note": "one sentence on what you found — or what to try if nothing solid turned up"\n}`;
+  return {
+    system,
+    messages: [{ role: "user", content: user }],
+    model: "main",
+    maxTokens: 4000,
+    json: true,
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+  };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -610,4 +632,5 @@ export const ACTIONS = {
   discuss: (p) => discuss(p),
   summarize: (p) => summarizeManuscript(p),
   review_notes: (p) => reviewNotes(p),
+  research: (p) => research(p),
 };

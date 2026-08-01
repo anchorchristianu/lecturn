@@ -301,3 +301,13 @@ button { font-family: var(--ui); cursor: pointer; }
 .import-chapter .num { font-family: var(--display); color: var(--brass); font-size: 1rem; min-width: 1.7rem; }
 .import-chapter .ic-title { flex: 1; font-family: var(--display); font-size: 1.02rem; }
 .import-chapter .ic-words { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
+
+/* ---- "Discuss with the coach" link on each editor's note ---- */
+.note-list li { margin-bottom: 0.75rem; }
+.note-list li .note-discuss {
+  display: block; margin-top: 0.25rem; padding: 0;
+  background: none; border: none; color: var(--pine); font-family: var(--ui);
+  font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left;
+}
+.note-list li .note-discuss:hover { text-decoration: underline; }
+.note-list li .note-discuss:disabled { opacity: 0.5; cursor: default; text-decoration: none; }

@@ -578,6 +578,12 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
       onDeleted();
     });
   }
+  async function archiveBook() {
+    await run("Archiving", async () => {
+      await post({ op: "archiveProject", id: project.id, archived: true });
+      onDeleted(); // return to the library, where it now lives under Archived
+    });
+  }
 
   // ---- collaborators ----
   async function inviteMember(email, role) {
@@ -863,6 +869,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
 
           <div className="row" style={{ marginTop: "2rem" }}>
             <span className="spacer" />
+            {isOwner && <button className="btn btn-secondary" onClick={archiveBook} disabled={working}>Archive this book</button>}
             {isOwner && <button className="btn btn-danger" onClick={deleteBook} disabled={working}>Delete this book</button>}
           </div>
         </div>

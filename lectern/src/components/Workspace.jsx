@@ -3,6 +3,7 @@ import StageRail from "./StageRail.jsx";
 import Collaborators from "./Collaborators.jsx";
 import DraftView from "./DraftView.jsx";
 import CoachPane from "./CoachPane.jsx";
+import ResearchPanel from "./ResearchPanel.jsx";
 import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
 import Footnotes from "./Footnotes.jsx";
@@ -65,6 +66,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   const [expOpts, setExpOpts] = useState({ gaps: true, breaks: true });
   const [preview, setPreview] = useState(""); // live text while a chapter streams
   const [coachSeed, setCoachSeed] = useState(null); // {marker, nonce} when a gap is clicked to discuss
+  const [research, setResearch] = useState(null); // { query } when the research panel is open
   const [reshapeNote, setReshapeNote] = useState(""); // author's direction for reshaping the outline
   const [proposal, setProposal] = useState(null);     // { outline, gaps } awaiting accept/reject
   const [editOutline, setEditOutline] = useState(false); // hand-edit mode for the outline
@@ -389,6 +391,25 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
       return raw;
     }
   }
+  // Pull a source found via web research into the citation engine. It's added as
+  // an unplaced footnote (it shows under Footnotes to position in the text) — we
+  // don't guess where in the draft it belongs.
+  async function addResearchedSource(source) {
+    if (!currentDraft || !source) return;
+    await run("Adding the source", async () => {
+      const id = newFootnoteId();
+      let citation = (source.citation || "").trim();
+      if (!citation) {
+        const raw = [source.author, source.title, source.publisher, source.date, source.url].filter(Boolean).join(". ");
+        citation = await formatChicago(raw);
+      }
+      const footnotes = [...(currentDraft.footnotes || []), { id, source: citation, claim: source.supports || source.title || "" }];
+      const resp = await post({ op: "saveDraft", draft: { ...currentDraft, footnotes } });
+      if (resp?.draft) onSaved?.(resp.draft);
+      else await onReload();
+    });
+  }
+
   async function addFootnoteFromFlag(flag, source) {
     await run("Adding the source", async () => {
       const id = newFootnoteId();
@@ -1004,7 +1025,10 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       ? <ul className="note-list">{currentDraft.notes.map((n, i) => (
                           <li key={i}>
                             <span>{n}</span>
-                            <button className="note-discuss" onClick={() => setCoachSeed({ text: n, nonce: Date.now() })} disabled={working}>Discuss with the coach →</button>
+                            <span className="note-actions">
+                              <button className="note-discuss" onClick={() => setCoachSeed({ text: n, nonce: Date.now() })} disabled={working}>Discuss with the coach →</button>
+                              <button className="note-discuss" onClick={() => setResearch({ query: n })} disabled={working}>Find sources →</button>
+                            </span>
                           </li>
                         ))}</ul>
                       : <p className="muted" style={{ margin: 0, fontSize: "0.9rem" }}>No notes yet — run a review to get editorial notes on this chapter's text.</p>}
@@ -1224,6 +1248,16 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
       })()}
 
       {adding && <AddSource onSave={addSource} onClose={() => setAdding(false)} working={working} busyLabel={busy.label} />}
+      {research && (
+        <ResearchPanel
+          query={research.query}
+          brief={project.brief}
+          chapterTitle={chapterObj?.chapter}
+          working={working}
+          onAddSource={addResearchedSource}
+          onClose={() => setResearch(null)}
+        />
+      )}
     </div>
   );
 }

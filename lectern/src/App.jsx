@@ -59,6 +59,14 @@ export default function App() {
       else setErr(String(e.message || e));
     } finally { setLoading(false); }
   }
+  async function archiveProjectFromLibrary(id, archived) {
+    try { await post({ op: "archiveProject", id, archived }); await loadLibrary(); }
+    catch (e) { setErr(String(e.message || e)); }
+  }
+  async function deleteProjectFromLibrary(id) {
+    try { await post({ op: "deleteProject", id }); await loadLibrary(); }
+    catch (e) { setErr(String(e.message || e)); }
+  }
 
   async function openProject(id, tab) {
     setLoading(true); setErr("");
@@ -166,7 +174,7 @@ export default function App() {
         ) : loading && view === "library" ? (
           <div className="working"><span className="spinner" /> Loading…</div>
         ) : view === "library" ? (
-          <Library projects={projects} user={user} onOpen={openProject} onNew={() => setView("intake")} />
+          <Library projects={projects} user={user} onOpen={openProject} onNew={() => setView("intake")} onArchive={archiveProjectFromLibrary} onDelete={deleteProjectFromLibrary} />
         ) : view === "intake" ? (
           <Intake onCreate={createProject} onCancel={() => setView("library")} />
         ) : current ? (

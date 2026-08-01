@@ -279,3 +279,9 @@ button { font-family: var(--ui); cursor: pointer; }
 .write-start { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
 .start-option { display: flex; flex-direction: column; gap: 0.4rem; }
 @media (max-width: 640px) { .write-start { grid-template-columns: 1fr; } }
+
+/* ---- Library card actions (archive / delete) ---- */
+.bookcard-actions { display: flex; gap: 0.4rem; justify-content: flex-end; margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--line); }
+.bookcard-actions .btn { padding: 0.3rem 0.7rem; font-size: 0.85rem; min-height: auto; }
+.bookcard.archived { opacity: 0.72; }
+.bookcard.archived:hover { opacity: 1; }

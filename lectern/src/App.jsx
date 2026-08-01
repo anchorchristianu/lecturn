@@ -75,6 +75,18 @@ export default function App() {
   async function reloadCurrent() {
     if (current?.project?.id) setCurrent(await getProject(current.project.id));
   }
+  // Merge a just-saved draft straight into page state. The worker returns the
+  // saved draft object, so we don't have to wait for a re-fetch — which matters
+  // because Blobs list() is eventually consistent and often doesn't include the
+  // brand-new draft yet (the "saved but doesn't show until reload" symptom).
+  function draftSaved(d) {
+    setCurrent((c) => {
+      if (!c || !d) return c;
+      const exists = c.drafts.some((x) => x.chapter === d.chapter);
+      const drafts = exists ? c.drafts.map((x) => (x.chapter === d.chapter ? d : x)) : [...c.drafts, d];
+      return { ...c, drafts };
+    });
+  }
 
   async function createProject(intake) {
     const r = await ai("intake_summary", { intake });
@@ -167,6 +179,7 @@ export default function App() {
             initialTab={wsTab}
             onTabChange={setWsTab}
             onReload={reloadCurrent}
+            onSaved={draftSaved}
             onBack={backToLibrary}
             onDeleted={backToLibrary}
           />

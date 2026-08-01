@@ -115,7 +115,7 @@ Return ONLY valid JSON in this shape:
 }
 
 // SHAPE → propose/refine the outline from everything filed so far, name gaps.
-export function shapeOutline({ brief, voiceSample, outline, sources }) {
+export function shapeOutline({ brief, voiceSample, outline, sources, instruction }) {
   const system = projectContext({ brief, voiceSample }) +
     `\n\nYou are shaping the book's structure. Propose a clean working outline ` +
     `that fits the material the author has actually produced, and name what is ` +
@@ -123,7 +123,13 @@ export function shapeOutline({ brief, voiceSample, outline, sources }) {
     `Some material is marked [STRUCTURE] — these are the author's existing ` +
     `outlines, frameworks, or series/lecture notes. Treat them as scaffolding: ` +
     `let them strongly guide the chapter order, groupings, and any framework or ` +
-    `acronym the author already uses. Do not flatten that structure; build on it.`;
+    `acronym the author already uses. Do not flatten that structure; build on it.` +
+    (instruction
+      ? `\n\nThe author has given you a direction for THIS revision. Follow it — their ` +
+        `instruction outranks your own preferences. Keep everything about the current ` +
+        `outline that they didn't ask to change, and keep the result honest to the ` +
+        `material (don't invent chapters the material can't support; mark thin ones).`
+      : "");
 
   const isStructural = (t) => /outline|framework|notes/i.test(t || "");
   const filed = (sources || [])
@@ -136,7 +142,7 @@ export function shapeOutline({ brief, voiceSample, outline, sources }) {
 
   const currentOutline = (outline || []).map((c, i) => `${i + 1}. ${c.chapter} — ${c.purpose || ""}`).join("\n") || "(none)";
 
-  const user = `CURRENT OUTLINE:
+  const user = `${instruction ? `THE AUTHOR'S DIRECTION FOR THIS REVISION (follow this):\n${instruction}\n\n` : ""}CURRENT OUTLINE:
 ${currentOutline}
 
 MATERIAL FILED SO FAR:

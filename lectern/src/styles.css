@@ -346,3 +346,9 @@ button { font-family: var(--ui); cursor: pointer; }
   font-family: var(--ui); font-size: 0.72rem; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--muted); margin: 0.5rem 0 0.2rem;
 }
+
+/* ---- Resolve notes (like Google Docs comments) ---- */
+.note-resolve { color: var(--pine) !important; }
+.resolved-notes { margin: 0.5rem 0 1.2rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.inline-note.resolved { opacity: 0.62; border-left-color: var(--line-strong); }
+.inline-note.resolved .inline-note-text { text-decoration: line-through; text-decoration-color: var(--muted); }

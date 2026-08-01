@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { extractChaptersFromFile } from "../extract.js";
+import { ai } from "../api.js";
 
 const MATERIALS = [
   "Walk recordings",
@@ -44,6 +45,7 @@ export default function Intake({ onCreate, onImport, onCancel }) {
   const [impBrief, setImpBrief] = useState("");
   const [reading, setReading] = useState("");
   const [impErr, setImpErr] = useState("");
+  const [summarizing, setSummarizing] = useState(false);
 
   async function handleManuscript(e) {
     const file = e.target.files?.[0];
@@ -54,11 +56,25 @@ export default function Intake({ onCreate, onImport, onCancel }) {
       const res = await extractChaptersFromFile(file);
       setParsed(res);
       setImpTitle(res.title || file.name.replace(/\.[^.]+$/, ""));
+      suggestBrief(res); // fill "What's it about?" from the manuscript (non-blocking)
     } catch (err) {
       setImpErr(String(err.message || err));
     } finally {
       setReading("");
     }
+  }
+
+  // Suggest a brief from the manuscript itself. Best-effort: if it fails (e.g.
+  // no API key), the field just stays empty and the author can type their own.
+  async function suggestBrief(res) {
+    setSummarizing(true);
+    try {
+      const sample = res.chapters.map((c) => c.text).join("\n\n").slice(0, 9000);
+      const r = await ai("summarize", { text: sample });
+      const brief = (r.text || "").trim();
+      if (brief) setImpBrief((cur) => (cur.trim() ? cur : brief));
+    } catch { /* leave it to the author */ }
+    finally { setSummarizing(false); }
   }
 
   async function doImport() {
@@ -120,8 +136,8 @@ export default function Intake({ onCreate, onImport, onCancel }) {
                 <input className="input" value={impTitle} onChange={(e) => setImpTitle(e.target.value)} placeholder="Name your book" disabled={busy} />
               </div>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>What's it about? <span className="hint" style={{ display: "inline" }}>(optional — helps the coach and review)</span></label>
-                <textarea className="textarea" value={impBrief} onChange={(e) => setImpBrief(e.target.value)} style={{ minHeight: 80 }} disabled={busy} />
+                <label>What's it about? <span className="hint" style={{ display: "inline" }}>{summarizing ? "· suggesting one from your manuscript…" : "(optional — helps the coach and review)"}</span></label>
+                <textarea className="textarea" value={impBrief} onChange={(e) => setImpBrief(e.target.value)} style={{ minHeight: 80 }} disabled={busy} placeholder={summarizing ? "Reading your manuscript…" : ""} />
               </div>
               <div>
                 <label style={{ fontWeight: 600 }}>Found {chapCount} chapter{chapCount === 1 ? "" : "s"}</label>

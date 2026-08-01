@@ -46,7 +46,7 @@ function extractDraftText(partial) {
 const trimForPrompt = (srcs) =>
   (srcs || []).map((s) => ({ title: s.title, type: s.type, text: s.text, summary: s.summary, stories: s.stories, chapters: s.chapters }));
 
-export default function Workspace({ project, sources, drafts, user, initialTab, onTabChange, onReload, onBack, onDeleted }) {
+export default function Workspace({ project, sources, drafts, user, initialTab, onTabChange, onReload, onSaved, onBack, onDeleted }) {
   const [tab, setTab] = useState(WS_TABS.includes(initialTab) ? initialTab : "sources");
   const [err, setErr] = useState("");
   // busy tracks BOTH a label (for the global indicator) and an id (which item
@@ -241,17 +241,23 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   async function draftChapter() {
     setPreview("");
     await run("Drafting the chapter", async () => {
+      let savedDraft = null;
       try {
         const r = await ai("draft", { ...chapterCtx(chapterObj), chapter: chapterObj, sources: trimForPrompt(sourcesForChapter(chapterObj)), save: { projectId: project.id, chapter: chapterObj.chapter } }, (p) => setPreview(extractDraftText(p)));
-        // The worker persists the draft server-side; only save from here if it didn't.
-        if (!r.saved) {
-          await post({ op: "saveDraft", draft: { projectId: project.id, chapter: chapterObj.chapter, text: r.draft || "", notes: r.notes || [], version: currentDraft?.version || 0 } });
+        // The worker persists the draft server-side and returns it; only save
+        // from here if it didn't.
+        savedDraft = r.saved || null;
+        if (!savedDraft) {
+          const resp = await post({ op: "saveDraft", draft: { projectId: project.id, chapter: chapterObj.chapter, text: r.draft || "", notes: r.notes || [], version: currentDraft?.version || 0 } });
+          savedDraft = resp?.draft || null;
         }
       } finally {
-        // Reload regardless: if the AI step timed out but the worker already
-        // saved, this brings the finished chapter back instead of "erasing" it.
         setPreview("");
-        await onReload();
+        // Show the saved draft immediately from the returned object (no re-fetch,
+        // which can lag). Only fall back to a reload if we never got one — e.g.
+        // the AI step errored but the worker may still have saved.
+        if (savedDraft) onSaved?.(savedDraft);
+        else await onReload();
       }
     });
   }
@@ -259,29 +265,37 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
     if (!feedback.trim()) return;
     setPreview("");
     await run("Revising", async () => {
+      let savedDraft = null;
       try {
         const r = await ai("refine", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: trimForPrompt(sourcesForChapter(chapterObj)), save: { projectId: project.id, chapter: chapterObj.chapter } }, (p) => setPreview(extractDraftText(p)));
-        if (!r.saved) {
-          await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, notes: r.notes || [] } });
+        savedDraft = r.saved || null;
+        if (!savedDraft) {
+          const resp = await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, notes: r.notes || [] } });
+          savedDraft = resp?.draft || null;
         }
         setFeedback("");
       } finally {
         setPreview("");
-        await onReload();
+        if (savedDraft) onSaved?.(savedDraft);
+        else await onReload();
       }
     });
   }
   async function polishChapter() {
     setPreview("");
     await run("Polishing", async () => {
+      let savedDraft = null;
       try {
         const r = await ai("polish", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, save: { projectId: project.id, chapter: chapterObj.chapter } }, (p) => setPreview(extractDraftText(p)));
-        if (!r.saved) {
-          await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
+        savedDraft = r.saved || null;
+        if (!savedDraft) {
+          const resp = await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
+          savedDraft = resp?.draft || null;
         }
       } finally {
         setPreview("");
-        await onReload();
+        if (savedDraft) onSaved?.(savedDraft);
+        else await onReload();
       }
     });
   }
@@ -765,8 +779,9 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
             </div>
           )}
 
-          {(project.outline || []).map((c, i) => (
-            editOutline ? (
+          {(project.outline || []).map((c, i) => {
+            const d = drafts.find((x) => x.chapter === c.chapter);
+            return editOutline ? (
               <div key={i} className="card">
                 <div className="outline-item">
                   <span className="num">{String(i + 1).padStart(2, "0")}</span>
@@ -803,6 +818,13 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                     <h3>{c.chapter}</h3>
                     {c.purpose && <p className="purpose">{c.purpose}</p>}
                     {c.coveredBy?.length > 0 && <p className="purpose">Drawn from: {c.coveredBy.join(", ")}</p>}
+                    {d && (
+                      <p className="purpose" style={{ color: "var(--pine)", fontWeight: 500 }}>
+                        {fmt(d.words || 0)} words · ~{readingTime(d.words || 0)} min
+                        {countGaps(d.text) > 0 ? ` · ${countGaps(d.text)} gap(s) left` : " · no open gaps"}
+                        {d.polished ? " · polished" : ""}
+                      </p>
+                    )}
                     {interviewQs[c.chapter] && (
                       <ul className="questions">
                         {interviewQs[c.chapter].map((q, j) => (
@@ -811,17 +833,21 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       </ul>
                     )}
                   </div>
-                  {c.status && <span className={`status ${c.status}`}>{c.status}</span>}
+                  {d
+                    ? <span className="status ready" title="This chapter has a draft you can keep working on">drafted</span>
+                    : (c.status && <span className={`status ${c.status}`}>{c.status}</span>)}
                 </div>
                 <div className="row" style={{ marginTop: "0.8rem" }}>
                   <button className="btn btn-ghost" onClick={() => interview(c)} disabled={working}>
                     {busy.id === c.chapter ? <Spin>Thinking…</Spin> : "Interview me on this →"}
                   </button>
-                  <button className="btn btn-secondary" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Write this →</button>
+                  {d
+                    ? <button className="btn btn-primary" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Open the draft →</button>
+                    : <button className="btn btn-secondary" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Write this →</button>}
                 </div>
               </div>
-            )
-          ))}
+            );
+          })}
 
           {editOutline && (
             <button className="btn btn-secondary" onClick={addChapter} disabled={working}>+ Add a chapter</button>
@@ -852,7 +878,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
               <div className="field" style={{ marginBottom: 0 }}>
                 <label>Which chapter?</label>
                 <select value={selectedChapter} onChange={(e) => { setActivePass(null); setSelectedChapter(e.target.value); }} disabled={working || editing}>
-                  {project.outline.map((c) => <option key={c.chapter}>{c.chapter}</option>)}
+                  {project.outline.map((c, i) => <option key={c.chapter} value={c.chapter}>{i + 1}. {c.chapter}{drafts.some((d) => d.chapter === c.chapter) ? " ✓" : ""}</option>)}
                 </select>
               </div>
 

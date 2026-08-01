@@ -326,3 +326,23 @@ button { font-family: var(--ui); cursor: pointer; }
 .rs-line b { color: var(--ink); }
 .rs-cite { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--muted); font-style: italic; }
 .rs-url { display: inline-block; margin-top: 0.4rem; font-size: 0.8rem; color: var(--pine); word-break: break-all; }
+
+/* ---- Inline editor's notes (anchored to the passage) ---- */
+.inline-note {
+  margin: 0.5rem 0 1.1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--paper-2, #f3efe6);
+  border-left: 3px solid var(--brass);
+  border-radius: 0 8px 8px 0;
+  font-family: var(--ui);
+}
+.inline-note-text { margin: 0; font-size: 0.9rem; line-height: 1.5; color: var(--ink); }
+.inline-note .note-actions { margin-top: 0.45rem; gap: 1.1rem; }
+.inline-note-group {
+  margin: 0 0 1.2rem; padding: 0.4rem 0 0.2rem;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.inline-note-label {
+  font-family: var(--ui); font-size: 0.72rem; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted); margin: 0.5rem 0 0.2rem;
+}

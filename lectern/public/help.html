@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lectern — Help &amp; Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root{
+      --paper:#f4efe3; --surface:#fdfaf3; --surface-2:#f8f3e8; --ink:#20271f; --muted:#6c6a5c;
+      --pine:#2f4c40; --brass:#a07a3c; --line:#e3dbc8; --line-strong:#d4cab2;
+      --display:"Fraunces",Georgia,serif; --ui:"Inter",system-ui,sans-serif; --maxw:820px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:18px;line-height:1.65;-webkit-font-smoothing:antialiased}
+    a{color:var(--pine)}
+    .wrap{max-width:var(--maxw);margin:0 auto;padding:0 1.25rem}
+    header.top{border-bottom:1px solid var(--line);background:var(--surface)}
+    header.top .wrap{display:flex;align-items:baseline;gap:0.6rem;padding:1.1rem 1.25rem}
+    .mark{font-family:var(--display);font-weight:600;font-size:1.5rem;color:var(--ink)}
+    .tag{color:var(--muted);font-size:0.95rem}
+    .spacer{flex:1}
+    .back{font-size:0.95rem;text-decoration:none}
+    h1{font-family:var(--display);font-weight:600;font-size:2.1rem;line-height:1.15;margin:2rem 0 0.4rem}
+    .lede{color:var(--muted);font-size:1.1rem;margin:0 0 1.4rem}
+    h2{font-family:var(--display);font-weight:600;font-size:1.45rem;margin:2.4rem 0 0.5rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+    h3{font-family:var(--display);font-weight:600;font-size:1.12rem;margin:1.4rem 0 0.3rem}
+    p{margin:0.5rem 0}
+    .toc{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1rem 1.2rem;margin:1.5rem 0}
+    .toc strong{font-family:var(--display)}
+    .toc ul{margin:0.5rem 0 0;padding-left:1.1rem}
+    .toc li{margin:0.2rem 0}
+    ol.steps{counter-reset:step;list-style:none;padding:0;margin:1rem 0}
+    ol.steps>li{position:relative;padding:0.2rem 0 0.9rem 2.6rem;margin:0}
+    ol.steps>li::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:0.1rem;width:1.8rem;height:1.8rem;border-radius:50%;background:var(--pine);color:#fff;font-family:var(--display);display:flex;align-items:center;justify-content:center;font-size:0.95rem}
+    ol.steps>li b{font-family:var(--display);font-weight:600}
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1rem 1.2rem;margin:1rem 0}
+    .pill{display:inline-block;font-size:0.78rem;font-weight:600;color:var(--pine);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:999px;padding:0.05rem 0.55rem;margin-right:0.3rem}
+    .rail{display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;margin:0.6rem 0 0.2rem}
+    .rail span{font-size:0.85rem;color:var(--muted)}
+    .rail b{font-family:var(--display);color:var(--ink);font-weight:600}
+    .rail .arr{color:var(--brass)}
+    .gap{background:color-mix(in srgb,var(--brass) 18%,white);border-bottom:1px dashed var(--brass);padding:0 0.2rem;border-radius:3px;font-size:0.92rem;color:#6b531f}
+    .note{color:var(--muted);font-size:0.95rem}
+    ul.tight{margin:0.4rem 0;padding-left:1.2rem}
+    ul.tight li{margin:0.35rem 0}
+    footer{color:var(--muted);font-size:0.9rem;border-top:1px solid var(--line);margin-top:2.5rem;padding:1.5rem 0 3rem}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <span class="mark">Lectern</span>
+      <span class="tag">Help &amp; Guide</span>
+      <span class="spacer"></span>
+      <a class="back" href="/" target="_blank" rel="noopener">Open the app &rarr;</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1>Turning the spoken word into a book</h1>
+    <p class="lede">Lectern takes the raw material someone already produces — stories told on a walk, sermons preached, talks and lectures — and walks it through a calm, staged path to a finished, footnoted manuscript. This guide explains the idea and how to use each part.</p>
+
+    <div class="toc">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#start">Start here — a first session</a></li>
+        <li><a href="#ideas">The big ideas</a></li>
+        <li><a href="#stages">The path, stage by stage</a></li>
+        <li><a href="#editing">Editing &amp; review</a></li>
+        <li><a href="#cite">Fact-checking &amp; footnotes</a></li>
+        <li><a href="#export">Compiling your book</a></li>
+        <li><a href="#tips">Tips that make it work</a></li>
+      </ul>
+    </div>
+
+    <h2 id="start">Start here — a first session</h2>
+    <p>The fastest way to understand Lectern is to take one chapter from spoken words to a draft. Here's the whole arc.</p>
+    <ol class="steps">
+      <li><b>Create a book.</b> From your library, start a new book and answer a few short questions — what it's about and who it's for. Lectern turns that into a working brief, a starting outline, and a sense of the author's voice.</li>
+      <li><b>Add material.</b> Open the <b>Material</b> tab and either paste text or upload a file. The most natural source is a recording: the author talks on a walk or into a phone, the phone transcribes it, and you paste the transcript in. Sermon transcripts, talks, notes, and a framework document all work too.</li>
+      <li><b>File it.</b> Hit <b>File this</b> on each piece so Lectern tags it to the right chapter(s). Doing this before you draft makes the drafts much sharper.</li>
+      <li><b>Shape the outline.</b> In <b>Shape</b>, let Lectern build or refine the chapter outline from the material you've filed.</li>
+      <li><b>Draft a chapter.</b> In <b>Write</b>, pick a chapter and choose <b>Draft this chapter in your voice</b>. Lectern writes from the filed material, in the author's voice — and where the material runs thin, it leaves a visible <span class="gap">[GAP: …]</span> and asks for what's missing instead of inventing it.</li>
+      <li><b>Fill the gaps and refine.</b> Type directly into the chapter, tell the coach what to change, or run an editing pass (below). Then, once a few chapters exist, run a <b>Review</b>, <b>Fact-check</b> your claims, and <b>Export</b> to Word.</li>
+    </ol>
+
+    <h2 id="ideas">The big ideas</h2>
+    <h3>Talking is the writing</h3>
+    <p>Many people who get stuck staring at a blank page have no trouble <em>talking</em> about what they know. Lectern treats talking as the real act of authorship. The author's job is to speak; Lectern does the structuring and editing that the blank page demands.</p>
+    <h3>Lectern is an editor and coach — never the author</h3>
+    <p>It shapes and smooths the author's own words. It does <strong>not</strong> make up content. When something is missing, it leaves a <span class="gap">[GAP: …]</span> marker and asks a question rather than papering over the hole with invented material. The voice on the page stays the author's voice.</p>
+    <h3>Structure before sentences</h3>
+    <p>Professional editing runs in a fixed order — big-picture first, commas last — because there's no sense polishing a sentence in a chapter you might cut. Lectern follows the same order and gently nudges you to settle the shape before perfecting the prose.</p>
+    <h3>Verify, don't assert</h3>
+    <p>For anything checkable — a quote, a statistic, a date, a name, a scripture reference — Lectern <strong>flags it for you to verify</strong> rather than silently "correcting" it. A misremembered quote fixed to something equally wrong is worse than one flagged for a human to check.</p>
+    <h3>Lectern's job ends at a clean manuscript</h3>
+    <p>It carries a book from idea to a structurally sound, sourced manuscript and a clean export. Cover design, typesetting, ISBNs, printing, and distribution are the next craft — Lectern hands off to them rather than trying to do them.</p>
+
+    <h2 id="stages">The path, stage by stage</h2>
+    <p>Every book moves along the same rail, shown at the top of each project:</p>
+    <div class="rail"><b>Captured</b><span class="arr">→</span><b>Sorted</b><span class="arr">→</span><b>Shaped</b><span class="arr">→</span><b>Drafted</b><span class="arr">→</span><b>Polished</b></div>
+    <div class="card">
+      <p><span class="pill">Material</span> Capture everything the author has said or written. Paste text, or upload a PDF, Word document, plain text, or markdown — Lectern pulls the words out. An uploaded outline or framework document is treated as <em>structure</em>, shaping the book rather than becoming prose.</p>
+      <p><span class="pill">Sort / File</span> Filing a piece of material tags it to the chapters it belongs to, so each chapter draws only on what's relevant.</p>
+      <p><span class="pill">Shape</span> Builds the outline from the filed material — the chapter list and what each one is for.</p>
+      <p><span class="pill">Write</span> Drafts a chapter in the author's voice, gathers gap-filling answers, and is where you edit.</p>
+      <p><span class="pill">Review &amp; Export</span> A whole-manuscript editorial read, and the compile to a finished document.</p>
+    </div>
+    <h3>Filling a gap</h3>
+    <p>A <span class="gap">[GAP: …]</span> marks a spot where the author needs to supply something. Replace it by typing the missing piece directly into the chapter (and deleting the marker), by answering the interview questions Lectern raises, or by recording more material and adding it.</p>
+
+    <h2 id="editing">Editing &amp; review</h2>
+    <h3>Three ways to change a draft</h3>
+    <ul class="tight">
+      <li><b>Edit directly.</b> Type your own changes into the chapter, or write a chapter from scratch with <b>Write it myself</b>. Your words are never overwritten unless you ask for a redraft.</li>
+      <li><b>Tell the coach.</b> Describe what you want — "cut the second story," "warmer opening" — and Lectern revises.</li>
+      <li><b>Editing passes.</b> Run one professional level at a time.</li>
+    </ul>
+    <h3>The editing passes</h3>
+    <p>Each pass proposes changes you <b>accept or reject</b> — nothing changes until you apply it. They run from the lightest touch on your voice to the most mechanical:</p>
+    <ul class="tight">
+      <li><b>Line edit</b> — style, rhythm, and word choice, carefully kept in the author's voice. The most restrained, because this is where generic AI tends to flatten a writer; Lectern suggests sparingly and leaves distinctive phrasing alone.</li>
+      <li><b>Copy edit</b> — grammar, punctuation, spelling, and consistency.</li>
+      <li><b>Proofread</b> — final surface pass for typos and spacing only.</li>
+      <li><b>Fact-check</b> — gathers every checkable claim for you to verify (see below).</li>
+    </ul>
+    <h3>Developmental review</h3>
+    <p>In the <b>Review</b> tab, Lectern reads the whole manuscript and writes an editorial letter — the few things that matter most, structural issues, what's promised but not delivered, audience fit, and a chapter-by-chapter read. It's a strong first read that catches the visible problems; for a high-stakes book it's a complement to, not a replacement for, a human developmental editor.</p>
+
+    <h2 id="cite">Fact-checking &amp; footnotes</h2>
+    <p>Running <b>Fact-check</b> on a chapter produces a standing list of <b>Claims to verify</b> — quotes, names, numbers, dates, and scripture references, each split out so it can be cited on its own. The list is saved with the chapter, so it waits for you across sessions; you only spend a fresh check when you choose to <b>Re-check</b>.</p>
+    <h3>Turning a claim into a footnote</h3>
+    <ul class="tight">
+      <li>On any flag, choose <b>Add source</b>, paste what you have, optionally tap <b>Format in Chicago</b> to clean it into a proper note, and save. A numbered marker is placed right after that claim, and the flag becomes <b>cited</b>.</li>
+      <li>To cite something the check didn't flag, use <b>Edit directly</b>, place the cursor, and choose <b>Insert footnote at cursor</b>.</li>
+      <li><b>Dismiss</b> a flag you've handled another way; everything you resolve is preserved when you re-check.</li>
+      <li>Manage all sources for a chapter under <b>Notes &amp; sources</b> — edit, reformat, or remove them. Removing a note pulls its marker out of the text too.</li>
+    </ul>
+    <p class="note">Lectern uses only the source details you provide and won't invent page numbers or publishers. Even when a check finds nothing, confirm quotes and references against the original yourself — it's a careful first reader, not the last word.</p>
+
+    <h2 id="export">Compiling your book</h2>
+    <p>The <b>Export</b> tab stitches every chapter, in order, into one document. <b>Compile to Word (.docx)</b> produces a file with real, native footnotes numbered across the whole book; <b>Download Markdown (.md)</b> gives a portable version with a Notes section.</p>
+    <p>The export is intentionally plain — proper Heading 1/2/3 structure, a neutral font, and no colors or odd sizes — so it drops cleanly into Google Docs or design software without formatting to undo. Two options let you include the unfilled <span class="gap">[GAP: …]</span> notes (so you can see what's still missing) and start each chapter on a new page. Chapters with no draft appear as a heading marked "not yet drafted," and any source you haven't filled in shows as "[source needed]."</p>
+
+    <h2 id="tips">Tips that make it work</h2>
+    <ul class="tight">
+      <li><b>File material before you draft.</b> A chapter drawing on its own filed material reads far sharper than one fed everything at once.</li>
+      <li><b>Settle the structure before polishing.</b> Run a Review and get the shape right before line-editing sentences.</li>
+      <li><b>Keep the author's surface small.</b> The author records; whoever's comfortable with the app can do the operating. The author mainly talks and reacts.</li>
+      <li><b>Save before you leave.</b> Direct edits aren't stored until you press <b>Save edits</b>; switching away first loses unsaved typing (saved drafts are always safe).</li>
+      <li><b>Re-check sparingly.</b> Flags persist until you resolve them, so you don't need to re-run the check to get back to your list.</li>
+    </ul>
+
+    <footer class="wrap" style="padding-left:0;padding-right:0">
+      Lectern — your voice, bound into books.
+    </footer>
+  </main>
+</body>
+</html>

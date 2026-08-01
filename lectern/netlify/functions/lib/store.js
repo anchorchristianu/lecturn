@@ -121,6 +121,7 @@ export async function deleteProjectById(id) {
   await projects().delete(pKey(id));
   for (const s of await listSources(id)) await sources().delete(`${id}__${s.id}`);
   for (const d of await listDrafts(id)) await drafts().delete(`${id}__${d.id}`);
+  try { for (const b of (await threads().list({ prefix: `${id}__` })).blobs) await threads().delete(b.key); } catch {}
 }
 
 // ---- members ----

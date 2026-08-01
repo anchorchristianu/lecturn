@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import StageRail from "./StageRail.jsx";
 import Collaborators from "./Collaborators.jsx";
 import DraftView from "./DraftView.jsx";
+import CoachPane from "./CoachPane.jsx";
 import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
 import Footnotes from "./Footnotes.jsx";
@@ -63,6 +64,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   const [exporting, setExporting] = useState("");
   const [expOpts, setExpOpts] = useState({ gaps: true, breaks: true });
   const [preview, setPreview] = useState(""); // live text while a chapter streams
+  const [coachSeed, setCoachSeed] = useState(null); // {marker, nonce} when a gap is clicked to discuss
 
   // ---- collaboration: members, roles, and per-chapter voice ----
   const members = project.members || [];
@@ -179,30 +181,48 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   async function draftChapter() {
     setPreview("");
     await run("Drafting the chapter", async () => {
-      const r = await ai("draft", { ...chapterCtx(chapterObj), chapter: chapterObj, sources: trimForPrompt(sourcesForChapter(chapterObj)) }, (p) => setPreview(extractDraftText(p)));
-      await post({ op: "saveDraft", draft: { projectId: project.id, chapter: chapterObj.chapter, text: r.draft || "", notes: r.notes || [], version: currentDraft?.version || 0 } });
-      setPreview("");
-      await onReload();
+      try {
+        const r = await ai("draft", { ...chapterCtx(chapterObj), chapter: chapterObj, sources: trimForPrompt(sourcesForChapter(chapterObj)), save: { projectId: project.id, chapter: chapterObj.chapter } }, (p) => setPreview(extractDraftText(p)));
+        // The worker persists the draft server-side; only save from here if it didn't.
+        if (!r.saved) {
+          await post({ op: "saveDraft", draft: { projectId: project.id, chapter: chapterObj.chapter, text: r.draft || "", notes: r.notes || [], version: currentDraft?.version || 0 } });
+        }
+      } finally {
+        // Reload regardless: if the AI step timed out but the worker already
+        // saved, this brings the finished chapter back instead of "erasing" it.
+        setPreview("");
+        await onReload();
+      }
     });
   }
   async function reviseChapter() {
     if (!feedback.trim()) return;
     setPreview("");
     await run("Revising", async () => {
-      const r = await ai("refine", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: trimForPrompt(sourcesForChapter(chapterObj)) }, (p) => setPreview(extractDraftText(p)));
-      await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, notes: r.notes || [] } });
-      setFeedback("");
-      setPreview("");
-      await onReload();
+      try {
+        const r = await ai("refine", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, feedback, sources: trimForPrompt(sourcesForChapter(chapterObj)), save: { projectId: project.id, chapter: chapterObj.chapter } }, (p) => setPreview(extractDraftText(p)));
+        if (!r.saved) {
+          await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, notes: r.notes || [] } });
+        }
+        setFeedback("");
+      } finally {
+        setPreview("");
+        await onReload();
+      }
     });
   }
   async function polishChapter() {
     setPreview("");
     await run("Polishing", async () => {
-      const r = await ai("polish", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text }, (p) => setPreview(extractDraftText(p)));
-      await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
-      setPreview("");
-      await onReload();
+      try {
+        const r = await ai("polish", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text, save: { projectId: project.id, chapter: chapterObj.chapter } }, (p) => setPreview(extractDraftText(p)));
+        if (!r.saved) {
+          await post({ op: "saveDraft", draft: { ...currentDraft, text: r.draft || currentDraft.text, polished: true } });
+        }
+      } finally {
+        setPreview("");
+        await onReload();
+      }
     });
   }
 
@@ -262,6 +282,17 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   async function saveDraftObj(draft) {
     await post({ op: "saveDraft", draft });
     await onReload();
+  }
+  // Insert a passage the author accepted from the coach. If it came from a
+  // specific [GAP: …] marker, replace that marker in place; otherwise append.
+  // Nothing is written unless the author clicked to accept it.
+  async function insertCoachPassage(passage, gapMarker) {
+    if (!currentDraft || !passage) return;
+    let text = currentDraft.text || "";
+    text = (gapMarker && text.includes(gapMarker))
+      ? text.replace(gapMarker, passage)
+      : (text.trimEnd() + "\n\n" + passage);
+    await saveDraftObj({ ...currentDraft, text });
   }
   async function formatChicago(raw) {
     try {
@@ -751,19 +782,37 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                     </div>
                   )}
 
-                  <div className="card">
-                    <div className="row" style={{ marginBottom: "0.7rem" }}>
-                      <p className="muted" style={{ fontSize: "0.85rem", margin: 0 }}>
-                        {fmt(currentDraft.words || 0)} words · ~{readingTime(currentDraft.words || 0)} min ·{" "}
-                        {countGaps(currentDraft.text) > 0
-                          ? <span style={{ color: "var(--brass)" }}>{countGaps(currentDraft.text)} gap(s) to fill</span>
-                          : "no open gaps"}
-                        {currentDraft.polished && " · polished"}
-                      </p>
-                      <span className="spacer" />
-                      <button className="btn btn-secondary" onClick={startEdit} disabled={working}>✎ Edit directly</button>
+                  <div className="write-split">
+                    <div className="card">
+                      <div className="row" style={{ marginBottom: "0.7rem" }}>
+                        <p className="muted" style={{ fontSize: "0.85rem", margin: 0 }}>
+                          {fmt(currentDraft.words || 0)} words · ~{readingTime(currentDraft.words || 0)} min ·{" "}
+                          {countGaps(currentDraft.text) > 0
+                            ? <span style={{ color: "var(--brass)" }}>{countGaps(currentDraft.text)} gap(s) to fill</span>
+                            : "no open gaps"}
+                          {currentDraft.polished && " · polished"}
+                        </p>
+                        <span className="spacer" />
+                        <button className="btn btn-secondary" onClick={startEdit} disabled={working}>✎ Edit directly</button>
+                      </div>
+                      <DraftView
+                        text={currentDraft.text}
+                        footnotes={currentDraft.footnotes}
+                        onGapClick={(marker) => setCoachSeed({ marker, nonce: Date.now() })}
+                      />
                     </div>
-                    <DraftView text={currentDraft.text} footnotes={currentDraft.footnotes} />
+                    <CoachPane
+                      projectId={project.id}
+                      chapter={chapterObj.chapter}
+                      authorName={authorName(chapterObj.authorId || ownerId)}
+                      brief={project.brief}
+                      voiceSample={voiceFor(chapterObj)}
+                      draft={currentDraft.text}
+                      notes={currentDraft.notes}
+                      working={working}
+                      onInsert={insertCoachPassage}
+                      seed={coachSeed}
+                    />
                   </div>
 
                   <Footnotes

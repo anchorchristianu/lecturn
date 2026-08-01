@@ -65,6 +65,9 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   const [expOpts, setExpOpts] = useState({ gaps: true, breaks: true });
   const [preview, setPreview] = useState(""); // live text while a chapter streams
   const [coachSeed, setCoachSeed] = useState(null); // {marker, nonce} when a gap is clicked to discuss
+  const [reshapeNote, setReshapeNote] = useState(""); // author's direction for reshaping the outline
+  const [proposal, setProposal] = useState(null);     // { outline, gaps } awaiting accept/reject
+  const [editOutline, setEditOutline] = useState(false); // hand-edit mode for the outline
 
   // ---- collaboration: members, roles, and per-chapter voice ----
   const members = project.members || [];
@@ -145,22 +148,79 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   }
 
   // ---- shape ----
-  async function shape() {
+  // Non-destructive: the AI's outline is held as a *proposal* the author reviews
+  // and applies or discards — nothing overwrites the current outline until then.
+  function summarizeSources() {
+    const isStructural = (t) => /outline|framework|notes/i.test(t || "");
+    return sources.map((s) => ({
+      title: s.title, type: s.type, summary: s.summary, stories: s.stories,
+      text: isStructural(s.type) ? (s.text || "").slice(0, 4000) : undefined,
+    }));
+  }
+  async function proposeShape(instruction) {
     await run("Shaping the outline", async () => {
-      const isStructural = (t) => /outline|framework|notes/i.test(t || "");
-      const summarized = sources.map((s) => ({
-        title: s.title,
-        type: s.type,
-        summary: s.summary,
-        stories: s.stories,
-        // Send the actual outline text for framework sources (truncated) so the
-        // shape step can follow the author's own structure even before filing.
-        text: isStructural(s.type) ? (s.text || "").slice(0, 4000) : undefined,
-      }));
-      const r = await ai("shape", { ...ctx, outline: project.outline, sources: summarized });
-      await post({ op: "updateProject", project: { ...project, outline: r.outline || project.outline, gaps: r.gaps || [] } });
+      const r = await ai("shape", { ...ctx, outline: project.outline, sources: summarizeSources(), instruction: instruction || undefined });
+      setProposal({ outline: r.outline || [], gaps: r.gaps || [] });
+    });
+  }
+  async function applyProposal() {
+    if (!proposal) return;
+    await run("Updating the outline", async () => {
+      await post({ op: "updateProject", project: { ...project, outline: proposal.outline, gaps: proposal.gaps } });
+      setProposal(null); setReshapeNote("");
       await onReload();
     });
+  }
+
+  // ---- direct outline editing ----
+  async function saveOutline(newOutline, label = "Saving the outline") {
+    await run(label, async () => {
+      await post({ op: "updateProject", project: { ...project, outline: newOutline } });
+      await onReload();
+    });
+  }
+  function moveChapter(i, dir) {
+    const o = [...(project.outline || [])]; const j = i + dir;
+    if (j < 0 || j >= o.length) return;
+    [o[i], o[j]] = [o[j], o[i]];
+    saveOutline(o, "Reordering");
+  }
+  async function renameChapter(i, raw) {
+    const newTitle = (raw || "").trim();
+    const old = project.outline[i].chapter;
+    if (!newTitle || newTitle === old) return;
+    if (project.outline.some((c, k) => k !== i && c.chapter === newTitle)) {
+      setErr("Another chapter already has that title — pick a different one.");
+      return;
+    }
+    await run("Renaming the chapter", async () => {
+      const o = project.outline.map((c, k) => (k === i ? { ...c, chapter: newTitle } : c));
+      await post({ op: "updateProject", project: { ...project, outline: o } });
+      const d = drafts.find((x) => x.chapter === old); // carry the draft to the new title
+      if (d) await post({ op: "saveDraft", draft: { ...d, chapter: newTitle } });
+      if (selectedChapter === old) setSelectedChapter(newTitle);
+      await onReload();
+    });
+  }
+  function savePurpose(i, purpose) {
+    if ((project.outline[i].purpose || "") === (purpose || "")) return;
+    const o = project.outline.map((c, k) => (k === i ? { ...c, purpose } : c));
+    saveOutline(o, "Saving");
+  }
+  function addChapter() {
+    const existing = new Set((project.outline || []).map((c) => c.chapter));
+    let title = `New chapter ${(project.outline?.length || 0) + 1}`;
+    while (existing.has(title)) title += " ·";
+    saveOutline([...(project.outline || []), { chapter: title, purpose: "", status: "empty" }], "Adding a chapter");
+  }
+  async function removeChapter(i) {
+    const c = project.outline[i];
+    const hasDraft = drafts.some((d) => d.chapter === c.chapter);
+    const msg = hasDraft
+      ? `Remove "${c.chapter}" from the outline? Its draft won't be deleted, but it will no longer be linked to a chapter.`
+      : `Remove "${c.chapter}" from the outline?`;
+    if (!window.confirm(msg)) return;
+    saveOutline(project.outline.filter((_, k) => k !== i), "Removing the chapter");
   }
   async function interview(chapter) {
     await run("Thinking of questions", async () => {
@@ -617,14 +677,81 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
       {/* ---------------- SHAPE ---------------- */}
       {tab === "shape" && (
         <div className="stack">
-          <div className="row">
-            <button className="btn btn-primary" onClick={shape} disabled={working}>
-              {working && busy.label.startsWith("Shaping")
-                ? <Spin>Shaping…</Spin>
-                : project.outline?.some((c) => c.status) ? "Refresh the outline" : "Suggest an outline"}
-            </button>
-            <span className="muted">Builds the chapter shape from what you've filed.</span>
-          </div>
+          {!proposal && (
+            <div className="card stack">
+              <div>
+                <label style={{ fontWeight: 600, margin: 0 }}>Shape the book</label>
+                <span className="hint">
+                  Tell the coach how the structure should change — "merge the two leadership chapters," "add a chapter on funding," "make it more pastoral, less academic" — or leave it blank to let it suggest from your material. You'll see the proposed outline and can apply or discard it. Nothing changes until you apply.
+                </span>
+              </div>
+              <textarea
+                className="textarea"
+                value={reshapeNote}
+                onChange={(e) => setReshapeNote(e.target.value)}
+                placeholder="Optional: how should the outline change?"
+                style={{ minHeight: 80 }}
+                disabled={working}
+              />
+              <div className="row">
+                <button className="btn btn-primary" onClick={() => proposeShape(reshapeNote)} disabled={working}>
+                  {working && busy.label.startsWith("Shaping")
+                    ? <Spin>Shaping…</Spin>
+                    : project.outline?.length ? "Propose a reshaped outline" : "Suggest an outline"}
+                </button>
+                {project.outline?.length > 0 && (
+                  <button className="btn btn-secondary" onClick={() => setEditOutline((v) => !v)} disabled={working}>
+                    {editOutline ? "Done editing" : "✎ Edit outline by hand"}
+                  </button>
+                )}
+                <span className="muted">Builds the chapter shape from what you've filed.</span>
+              </div>
+            </div>
+          )}
+
+          {proposal && (
+            <div className="card stack" style={{ borderColor: "var(--pine-soft)" }}>
+              <div className="row">
+                <h3 style={{ margin: 0 }}>Proposed outline</h3>
+                <span className="spacer" />
+                <span className="muted" style={{ fontSize: "0.85rem" }}>{proposal.outline.length} chapters · nothing saved yet</span>
+              </div>
+              {(() => {
+                const newTitles = new Set(proposal.outline.map((c) => c.chapter));
+                const dropped = (project.outline || [])
+                  .filter((c) => !newTitles.has(c.chapter) && drafts.some((d) => d.chapter === c.chapter))
+                  .map((c) => c.chapter);
+                return dropped.length ? (
+                  <div className="banner" style={{ background: "var(--brass-soft, #f3e9d2)", border: "1px solid var(--brass)" }}>
+                    Heads up: {dropped.length === 1 ? "this chapter has a draft" : "these chapters have drafts"} and {dropped.length === 1 ? "isn't" : "aren't"} in the new outline. The draft{dropped.length > 1 ? "s" : ""} won't be deleted, but {dropped.length > 1 ? "they" : "it"} will no longer be linked to a chapter: <b>{dropped.join(", ")}</b>.
+                  </div>
+                ) : null;
+              })()}
+              {proposal.outline.map((c, i) => (
+                <div key={i} className="outline-item" style={{ paddingBottom: "0.6rem", borderBottom: "1px solid var(--line)" }}>
+                  <span className="num">{String(i + 1).padStart(2, "0")}</span>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ margin: 0 }}>{c.chapter}</h3>
+                    {c.purpose && <p className="purpose">{c.purpose}</p>}
+                  </div>
+                  {c.status && <span className={`status ${c.status}`}>{c.status}</span>}
+                </div>
+              ))}
+              {proposal.gaps?.length > 0 && (
+                <div>
+                  <b style={{ fontSize: "0.9rem" }}>Still missing:</b>
+                  <ul className="note-list">{proposal.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul>
+                </div>
+              )}
+              <div className="row">
+                <button className="btn btn-primary" onClick={applyProposal} disabled={working}>
+                  {working && busy.label.startsWith("Updating") ? <Spin>Applying…</Spin> : "Apply this outline"}
+                </button>
+                <button className="btn btn-ghost" onClick={() => proposeShape(reshapeNote)} disabled={working}>Try again</button>
+                <button className="btn btn-ghost" onClick={() => setProposal(null)} disabled={working}>Discard</button>
+              </div>
+            </div>
+          )}
 
           {project.questions?.length > 0 && (
             <div className="card">
@@ -639,31 +766,66 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
           )}
 
           {(project.outline || []).map((c, i) => (
-            <div key={i} className="card">
-              <div className="outline-item">
-                <span className="num">{String(i + 1).padStart(2, "0")}</span>
-                <div style={{ flex: 1 }}>
-                  <h3>{c.chapter}</h3>
-                  {c.purpose && <p className="purpose">{c.purpose}</p>}
-                  {c.coveredBy?.length > 0 && <p className="purpose">Drawn from: {c.coveredBy.join(", ")}</p>}
-                  {interviewQs[c.chapter] && (
-                    <ul className="questions">
-                      {interviewQs[c.chapter].map((q, j) => (
-                        <QuestionItem key={j} question={q} chapter={c.chapter} onAnswer={answerQuestion} working={working} />
-                      ))}
-                    </ul>
-                  )}
+            editOutline ? (
+              <div key={i} className="card">
+                <div className="outline-item">
+                  <span className="num">{String(i + 1).padStart(2, "0")}</span>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      className="input"
+                      defaultValue={c.chapter}
+                      onBlur={(e) => renameChapter(i, e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      disabled={working}
+                      style={{ fontFamily: "var(--display)", fontSize: "1.1rem", marginBottom: "0.45rem" }}
+                    />
+                    <textarea
+                      className="textarea"
+                      defaultValue={c.purpose || ""}
+                      onBlur={(e) => savePurpose(i, e.target.value)}
+                      placeholder="What does this chapter do for the reader?"
+                      disabled={working}
+                      style={{ minHeight: 54, fontSize: "0.95rem" }}
+                    />
+                  </div>
+                  <div className="stack" style={{ minWidth: 44, gap: "0.3rem", textAlign: "center" }}>
+                    <button className="btn btn-ghost" onClick={() => moveChapter(i, -1)} disabled={working || i === 0} title="Move up">↑</button>
+                    <button className="btn btn-ghost" onClick={() => moveChapter(i, 1)} disabled={working || i === project.outline.length - 1} title="Move down">↓</button>
+                    <button className="btn btn-ghost" onClick={() => removeChapter(i)} disabled={working} title="Remove chapter" style={{ color: "var(--danger)" }}>✕</button>
+                  </div>
                 </div>
-                {c.status && <span className={`status ${c.status}`}>{c.status}</span>}
               </div>
-              <div className="row" style={{ marginTop: "0.8rem" }}>
-                <button className="btn btn-ghost" onClick={() => interview(c)} disabled={working}>
-                  {busy.id === c.chapter ? <Spin>Thinking…</Spin> : "Interview me on this →"}
-                </button>
-                <button className="btn btn-ghost" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Write this →</button>
+            ) : (
+              <div key={i} className="card">
+                <div className="outline-item">
+                  <span className="num">{String(i + 1).padStart(2, "0")}</span>
+                  <div style={{ flex: 1 }}>
+                    <h3>{c.chapter}</h3>
+                    {c.purpose && <p className="purpose">{c.purpose}</p>}
+                    {c.coveredBy?.length > 0 && <p className="purpose">Drawn from: {c.coveredBy.join(", ")}</p>}
+                    {interviewQs[c.chapter] && (
+                      <ul className="questions">
+                        {interviewQs[c.chapter].map((q, j) => (
+                          <QuestionItem key={j} question={q} chapter={c.chapter} onAnswer={answerQuestion} working={working} />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  {c.status && <span className={`status ${c.status}`}>{c.status}</span>}
+                </div>
+                <div className="row" style={{ marginTop: "0.8rem" }}>
+                  <button className="btn btn-ghost" onClick={() => interview(c)} disabled={working}>
+                    {busy.id === c.chapter ? <Spin>Thinking…</Spin> : "Interview me on this →"}
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Write this →</button>
+                </div>
               </div>
-            </div>
+            )
           ))}
+
+          {editOutline && (
+            <button className="btn btn-secondary" onClick={addChapter} disabled={working}>+ Add a chapter</button>
+          )}
 
           {project.gaps?.length > 0 && (
             <div className="card">

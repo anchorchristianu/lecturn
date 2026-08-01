@@ -10,27 +10,163 @@
 
 import { ACTIONS } from "./lib/prompts.js";
 import { getUser } from "./lib/session.js";
-import { getJob, putJob } from "./lib/store.js";
+import {
+  getJob, putJob, addUsage, getUserByEmail,
+  getProjectById, memberRole, getLock, getDraftByChapter, persistDraft,
+} from "./lib/store.js";
+import { resolveUserKey } from "./lib/keys.js";
+
+// Drafting actions produce a chapter we must persist server-side (see below).
+const DRAFTING = new Set(["draft", "refine", "polish"]);
+
+// Persist a finished drafting result to the drafts store, using the SAME helper
+// the sync save uses. This is what makes a completed chapter durable regardless
+// of whether the client is still polling: even if the browser timed out or
+// closed, the chapter is saved and shows up on the next load. Returns the saved
+// draft, or null if nothing was persisted (bad input / no access / locked by
+// someone else / worker couldn't match the chapter).
+async function persistDrafting(uid, action, payload, result) {
+  try {
+    if (!DRAFTING.has(action)) return null;
+    const draftText = result && typeof result.draft === "string" ? result.draft.trim() : "";
+    if (!draftText) return null;
+    const save = (payload && payload.save) || {};
+    const { projectId, chapter } = save;
+    if (!projectId || !chapter) return null;
+
+    // Access control: only persist for a real member of this project.
+    const project = await getProjectById(projectId);
+    if (!project || !memberRole(project, uid)) return null;
+
+    // Respect a soft edit lock held by someone else (mirrors the sync save).
+    const held = await getLock(projectId, chapter);
+    if (held && held.uid !== uid) return null;
+
+    const existing = await getDraftByChapter(projectId, chapter);
+
+    if (action === "draft") {
+      // A fresh draft replaces the chapter text and notes; footnotes/flags reset
+      // (same semantics as the old client save, which did not carry them over).
+      return await persistDraft({
+        projectId, chapter,
+        text: result.draft, notes: result.notes || [],
+        version: existing?.version || 0,
+      });
+    }
+    // refine / polish preserve the existing draft's footnotes/flags/id and only
+    // swap the text (+ notes for refine, +polished for polish).
+    const base = existing || { projectId, chapter };
+    return await persistDraft({
+      ...base,
+      text: result.draft || existing?.text || "",
+      notes: action === "refine" ? (result.notes || []) : base.notes,
+      polished: action === "polish" ? true : base.polished,
+    });
+  } catch {
+    return null; // non-fatal: the client fallback save still runs
+  }
+}
 
 const MODELS = {
   main: process.env.MODEL_MAIN || "claude-sonnet-4-6",
   sort: process.env.MODEL_SORT || "claude-haiku-4-5",
 };
 
-async function callClaude({ system, messages, model, maxTokens }) {
+// Turn an Anthropic error type into something a non-technical author can act on.
+function friendlyApiError(type, status, raw) {
+  if (type === "rate_limit_error" || status === 429)
+    return "The AI service is rate-limiting this account's API key. Wait a minute and try again — if it keeps happening, this key may be on a low usage tier.";
+  if (type === "overloaded_error" || status === 529)
+    return "The AI service is temporarily overloaded. Please try again in a moment.";
+  if (/credit|billing|quota/i.test(raw || ""))
+    return "This Anthropic API key can't be charged right now (out of credit or billing issue). Check the key's account.";
+  if (type === "authentication_error" || status === 401)
+    return "The Anthropic API key was rejected. Check the key set for this account.";
+  return `The AI service returned an error${status ? ` (${status})` : ""}. Please try again.`;
+}
+
+async function oneCall({ system, messages, model, maxTokens }, apiKey, onPartial) {
   const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: MODELS[model] || MODELS.main, max_tokens: maxTokens, system: systemBlocks, messages }),
+    body: JSON.stringify({ model: MODELS[model] || MODELS.main, max_tokens: maxTokens, system: systemBlocks, messages, stream: true }),
   });
-  if (!res.ok) throw new Error(`Claude API ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  if (!res.ok) {
+    const raw = await res.text();
+    let type; try { type = JSON.parse(raw)?.error?.type; } catch {}
+    const e = new Error(friendlyApiError(type, res.status, raw));
+    e.transient = res.status === 529 || res.status === 500 || res.status === 503;
+    throw e;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let usage = {};
+  let lastEmit = 0;
+  let stopReason = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || ""; // keep the trailing partial line
+    for (const line of lines) {
+      const s = line.trim();
+      if (!s.startsWith("data:")) continue;
+      const data = s.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      let evt;
+      try { evt = JSON.parse(data); } catch { continue; }
+      if (evt.type === "error") {
+        // A mid-stream error (overloaded, rate limit, etc). Previously this was
+        // ignored, so the draft just stopped and never saved. Surface it.
+        const type = evt.error?.type;
+        const e = new Error(friendlyApiError(type, null, evt.error?.message));
+        e.transient = type === "overloaded_error" || type === "api_error";
+        throw e;
+      } else if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+        text += evt.delta.text;
+        const now = Date.now();
+        if (onPartial && now - lastEmit > 900) { lastEmit = now; await onPartial(text); }
+      } else if (evt.type === "message_start" && evt.message?.usage) {
+        usage = { ...usage, ...evt.message.usage };
+      } else if (evt.type === "message_delta") {
+        if (evt.usage) usage = { ...usage, ...evt.usage };
+        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+      }
+    }
+  }
+
+  // The model hit the output length limit before finishing. For our JSON actions
+  // this means truncated, unparseable output — which is exactly the "streams,
+  // stops, never saves" symptom. Fail loudly instead of silently.
+  if (stopReason === "max_tokens") {
+    throw new Error("The draft reached the length limit before it finished, so it couldn't be saved. Try drafting this chapter in smaller sections, or trim the source material feeding it.");
+  }
+
+  return { text: text.trim(), usage };
+}
+
+async function callClaude(spec, apiKey, onPartial) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await oneCall(spec, apiKey, onPartial);
+    } catch (e) {
+      lastErr = e;
+      if (!e.transient || attempt === 2) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); // brief backoff, then retry
+    }
+  }
+  throw lastErr;
 }
 
 function parseJson(text) {
@@ -59,8 +195,10 @@ export default async (req) => {
     if (!job) return new Response(null, { status: 202 });      // nothing queued
     if (job.status === "done") return new Response(null, { status: 202 }); // retry guard
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      await putJob(u.uid, jobId, { status: "error", error: "ANTHROPIC_API_KEY is not set on the server." });
+    const userRec = await getUserByEmail(u.email);
+    const { key: apiKey } = resolveUserKey(userRec);
+    if (!apiKey) {
+      await putJob(u.uid, jobId, { status: "error", error: "No Anthropic API key is set for your account. Add one in Settings to use AI features." });
       return new Response(null, { status: 202 });
     }
 
@@ -70,8 +208,30 @@ export default async (req) => {
     if (!build) throw new Error(`Unknown action: ${job.action}`);
 
     const spec = build(job.payload || {});
-    const text = await callClaude(spec);
+    const out = await callClaude(spec, apiKey, async (partial) => {
+      // Publish in-progress text so the client can show the draft as it's written.
+      try { await putJob(u.uid, jobId, { status: "running", partial }); } catch {}
+    });
+    const text = out.text;
     const result = spec.json ? parseJson(text) : { text };
+
+    // Durably save drafting results here so a slow or closed client can't lose a
+    // finished chapter. If this succeeds, `result.saved` tells the client the
+    // draft is already stored and it should skip its own save.
+    const saved = await persistDrafting(u.uid, job.action, job.payload || {}, result);
+    if (saved) result.saved = saved;
+
+    try {
+      const u2 = out.usage || {};
+      await addUsage(u.uid, {
+        model: spec.model,
+        action: job.action,
+        input: u2.input_tokens,
+        output: u2.output_tokens,
+        cacheRead: u2.cache_read_input_tokens,
+        cacheWrite: u2.cache_creation_input_tokens,
+      });
+    } catch {}
 
     await putJob(u.uid, jobId, { status: "done", result });
   } catch (err) {

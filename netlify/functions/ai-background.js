@@ -111,6 +111,7 @@ async function oneCall({ system, messages, model, maxTokens }, apiKey, onPartial
   let usage = {};
   let lastEmit = 0;
   let stopReason = null;
+  let sawStop = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -140,7 +141,9 @@ async function oneCall({ system, messages, model, maxTokens }, apiKey, onPartial
         usage = { ...usage, ...evt.message.usage };
       } else if (evt.type === "message_delta") {
         if (evt.usage) usage = { ...usage, ...evt.usage };
-        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+        if (evt.delta?.stop_reason) { stopReason = evt.delta.stop_reason; sawStop = true; }
+      } else if (evt.type === "message_stop") {
+        sawStop = true;
       }
     }
   }
@@ -150,6 +153,13 @@ async function oneCall({ system, messages, model, maxTokens }, apiKey, onPartial
   // stops, never saves" symptom. Fail loudly instead of silently.
   if (stopReason === "max_tokens") {
     throw new Error("The draft reached the length limit before it finished, so it couldn't be saved. Try drafting this chapter in smaller sections, or trim the source material feeding it.");
+  }
+  // The stream ended without a proper completion signal — the connection dropped
+  // mid-response. Retry rather than save a half-finished, unparseable draft.
+  if (!sawStop) {
+    const e = new Error("The connection to the AI closed before the response finished. Please try again.");
+    e.transient = true;
+    throw e;
   }
 
   return { text: text.trim(), usage };
@@ -179,6 +189,36 @@ function parseJson(text) {
     if (a !== -1 && b !== -1) { try { return JSON.parse(cleaned.slice(a, b + 1)); } catch {} }
     return { raw: text };
   }
+}
+
+// When a drafting response is valid-looking JSON we use it directly. But models
+// often break JSON when the "draft" value is long markdown (raw newlines/quotes),
+// which parses to nothing and used to save an empty draft. This lenient pass
+// pulls the draft (and notes) out of the text even when the JSON is malformed.
+function salvageDraft(text) {
+  let t = String(text || "").replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const m = t.match(/"draft"\s*:\s*"/);
+  if (!m) return null;
+  const start = m.index + m[0].length;
+  // The draft string ends where the "notes" key begins, else at the last quote.
+  let end = t.search(/"\s*,\s*"notes"\s*:/);
+  if (end === -1 || end <= start) {
+    const lastQuote = t.lastIndexOf('"');
+    end = lastQuote > start ? lastQuote : t.length;
+  }
+  let draft = t.slice(start, end)
+    .replace(/\\n/g, "\n").replace(/\\r/g, "").replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+    .trim();
+  if (!draft) return null;
+  let notes = [];
+  const nm = t.match(/"notes"\s*:\s*\[([\s\S]*?)\]/);
+  if (nm) {
+    notes = (nm[1].match(/"((?:[^"\\]|\\.)*)"/g) || [])
+      .map((s) => s.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, " ").trim())
+      .filter(Boolean);
+  }
+  return { draft, notes };
 }
 
 export default async (req) => {
@@ -214,6 +254,20 @@ export default async (req) => {
     });
     const text = out.text;
     const result = spec.json ? parseJson(text) : { text };
+
+    // For drafting actions the result must contain a usable draft. If strict
+    // parsing produced nothing usable (malformed JSON around long markdown),
+    // salvage it; if we still can't get a draft, fail loudly instead of quietly
+    // saving an empty chapter.
+    if (DRAFTING.has(job.action)) {
+      if (typeof result.draft !== "string" || !result.draft.trim()) {
+        const s = salvageDraft(text);
+        if (s) { result.draft = s.draft; if (!Array.isArray(result.notes) || !result.notes.length) result.notes = s.notes; delete result.raw; }
+      }
+      if (typeof result.draft !== "string" || !result.draft.trim()) {
+        throw new Error("The draft came back in a form the app couldn't read, so nothing was saved. Please try again — if it keeps happening, the chapter may be too long to draft in one pass.");
+      }
+    }
 
     // Durably save drafting results here so a slow or closed client can't lose a
     // finished chapter. If this succeeds, `result.saved` tells the client the

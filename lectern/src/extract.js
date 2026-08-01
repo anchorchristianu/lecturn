@@ -71,23 +71,27 @@ export function splitIntoChapters(md) {
   const text = String(md || "").replace(/\r\n?/g, "\n").trim();
   if (!text) return [];
   const lines = text.split("\n");
-
-  const h1 = [], h2 = [];
+  const heads = [];
   lines.forEach((l, i) => {
-    if (/^#\s+\S/.test(l)) h1.push(i);
-    else if (/^##\s+\S/.test(l)) h2.push(i);
+    const m = l.match(/^(#{1,3})\s+(\S.*)$/);
+    if (m) heads.push({ i, level: m[1].length, text: m[2].trim() });
   });
+  const isMarker = (t) => /^(chapter|part|section)\b[\s:.\-—]*\S/i.test(t);
 
   let boundaries = [];
-  if (h1.length >= 2) boundaries = h1;
-  else if (h2.length >= 2) boundaries = h2;               // e.g. one # book title + ## chapters
-  else {
-    const chap = [];
-    lines.forEach((l, i) => {
-      const t = l.trim();
-      if (t.length < 80 && /^(chapter|part|section)\b[\s:.\-—]*\S/i.test(t)) chap.push(i);
-    });
-    if (chap.length >= 2) boundaries = chap;
+  const markers = heads.filter((h) => isMarker(h.text)).map((h) => h.i);
+  if (markers.length >= 2) {
+    boundaries = markers; // the real chapters are the "Chapter N" headings; anything before is front matter
+  } else {
+    const h1 = heads.filter((h) => h.level === 1).map((h) => h.i);
+    const h2 = heads.filter((h) => h.level === 2).map((h) => h.i);
+    if (h1.length >= 2) boundaries = h1;
+    else if (h2.length >= 2) boundaries = h2;               // e.g. one # book title + ## chapters
+    else {
+      const chap = [];
+      lines.forEach((l, i) => { const t = l.trim(); if (t.length < 80 && isMarker(t)) chap.push(i); });
+      if (chap.length >= 2) boundaries = chap;
+    }
   }
 
   const titleOf = (line, n) => line.replace(/^#{1,6}\s+/, "").trim() || `Chapter ${n}`;
@@ -100,9 +104,11 @@ export function splitIntoChapters(md) {
   }
 
   const chapters = [];
-  // Content before the first boundary (front matter / opening) — keep it, don't lose it.
-  const pre = lines.slice(0, boundaries[0]).join("\n").replace(/^#+\s+.*$/gm, "").trim();
-  if (pre.split(/\s+/).filter(Boolean).length >= 20) chapters.push({ title: "Opening", text: pre });
+  // Front matter before the first chapter (title page, working promise, table of
+  // contents). Strip boilerplate; keep it as a chapter ONLY if real prose remains
+  // (a genuine preface/foreword). A title page + TOC is not a chapter — drop it.
+  const fm = cleanFrontMatter(lines.slice(0, boundaries[0]).join("\n"));
+  if (fm.split(/\s+/).filter(Boolean).length >= 120) chapters.push({ title: "Front matter", text: fm });
 
   for (let b = 0; b < boundaries.length; b++) {
     const start = boundaries[b];
@@ -112,6 +118,20 @@ export function splitIntoChapters(md) {
     chapters.push({ title, text: body });
   }
   return promoteSubtitles(chapters).filter((c) => (c.text && c.text.trim()) || c.title);
+}
+
+// Strip the boilerplate that shows up before a book's first chapter — headings
+// (title/subtitle/section labels), a numbered or bulleted table of contents,
+// horizontal rules, and lone emphasis lines — leaving only real prose.
+function cleanFrontMatter(text) {
+  return String(text || "")
+    .replace(/^#{1,6}\s+.*$/gm, "")
+    .replace(/^\s*\d+[.)]\s+.*$/gm, "")
+    .replace(/^\s*[-*+]\s+.*$/gm, "")
+    .replace(/^\s*[-—*_]{3,}\s*$/gm, "")
+    .replace(/^\s*[*_][^*_\n]+[*_]\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // A very common manuscript pattern is a bare "# Chapter N" heading followed by

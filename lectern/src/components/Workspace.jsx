@@ -598,7 +598,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   }
 
   return (
-    <div>
+    <div className="workspace-wide">
       <div className="crumbs"><button className="btn-ghost" onClick={onBack}>← Your books</button></div>
 
       <div className="ws-head">

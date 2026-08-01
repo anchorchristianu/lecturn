@@ -616,6 +616,17 @@ function research({ topic, brief, chapterTitle }) {
   };
 }
 
+// Suggest where a citation marker should go: the exact text it should follow.
+function placeCitation({ draft, claim, source }) {
+  const system =
+    `You are placing a footnote marker in a book chapter. Given the chapter text and a source (with what it supports), find the single best spot for the citation — normally the end of the sentence that makes the claim the source backs. ` +
+    `Return a short EXACT quote copied verbatim from the chapter (4–12 words), ending exactly at the point the marker should follow (usually including the closing punctuation), so it can be located precisely. Copy it character-for-character. If nothing in the chapter clearly matches the source, return an empty anchor.`;
+  const user =
+    `Source: ${source || "(none)"}\nWhat it supports: ${claim || "(unspecified)"}\n\nChapter:\n"""${String(draft || "").slice(0, 16000)}"""\n\n` +
+    `Return ONLY valid JSON: { "anchor": "the exact text the marker should follow, or empty string", "reason": "one short phrase" }`;
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 400, json: true };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -633,4 +644,5 @@ export const ACTIONS = {
   summarize: (p) => summarizeManuscript(p),
   review_notes: (p) => reviewNotes(p),
   research: (p) => research(p),
+  place_citation: (p) => placeCitation(p),
 };

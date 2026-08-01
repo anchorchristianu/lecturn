@@ -26,24 +26,81 @@ function inline(text, keyBase, nums, onGapClick) {
   });
 }
 
-export default function DraftView({ text, footnotes, onGapClick }) {
+// Normalize text for locating an anchor quote inside a paragraph, tolerant of
+// smart quotes, dashes, punctuation, and markdown emphasis.
+function norm(s) {
+  return String(s || "")
+    .replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'")
+    .toLowerCase()
+    .replace(/[*_`#>()"'.,;:!?\u2014\u2013-]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+export default function DraftView({ text, footnotes, notes, onGapClick, onDiscussNote, onResearchNote }) {
   if (!text) return null;
   const nums = numberMap(text);
   const blocks = text.split(/\n{2,}/);
 
-  // Notes in display order: placed markers first (by number), then any unplaced.
+  // Assign each editor's note to the first block that contains its anchor quote.
+  const noteList = (notes || [])
+    .map((n) => (typeof n === "string" ? { anchor: "", note: n } : { anchor: n.anchor || "", note: n.note || n.text || "" }))
+    .filter((n) => n.note);
+  const blockNorms = blocks.map((b) => norm(b));
+  const assigned = {};
+  const general = [];
+  for (const n of noteList) {
+    const a = norm(n.anchor);
+    let bi = -1;
+    if (a) {
+      bi = blockNorms.findIndex((nb) => nb.includes(a));
+      if (bi === -1) {
+        const short = a.split(" ").slice(0, 6).join(" ");
+        if (short.length > 12) bi = blockNorms.findIndex((nb) => nb.includes(short));
+      }
+    }
+    if (bi === -1) general.push(n);
+    else (assigned[bi] = assigned[bi] || []).push(n);
+  }
+
   const byId = Object.fromEntries((footnotes || []).map((f) => [f.id, f]));
   const placed = orderedIds(text).map((id) => ({ n: nums[id], ...(byId[id] || { id }) }));
   const orphans = (footnotes || []).filter((f) => !(f.id in nums));
 
+  function Callout({ n }) {
+    return (
+      <div className="inline-note">
+        <p className="inline-note-text">{n.note}</p>
+        {(onDiscussNote || onResearchNote) && (
+          <div className="note-actions">
+            {onDiscussNote && <button className="note-discuss" onClick={() => onDiscussNote(n.note)}>Discuss with the coach →</button>}
+            {onResearchNote && <button className="note-discuss" onClick={() => onResearchNote(n.note)}>Find sources →</button>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="draft-read">
+      {general.length > 0 && (
+        <div className="inline-note-group">
+          <div className="inline-note-label">On the chapter as a whole</div>
+          {general.map((n, k) => <Callout key={k} n={n} />)}
+        </div>
+      )}
+
       {blocks.map((block, i) => {
         const b = block.trim();
-        if (b.startsWith("### ")) return <h3 key={i}>{inline(b.slice(4), i, nums, onGapClick)}</h3>;
-        if (b.startsWith("## ")) return <h2 key={i}>{inline(b.slice(3), i, nums, onGapClick)}</h2>;
-        if (b.startsWith("# ")) return <h1 key={i}>{inline(b.slice(2), i, nums, onGapClick)}</h1>;
-        return <p key={i}>{inline(b, i, nums, onGapClick)}</p>;
+        const el = b.startsWith("### ") ? <h3>{inline(b.slice(4), i, nums, onGapClick)}</h3>
+          : b.startsWith("## ") ? <h2>{inline(b.slice(3), i, nums, onGapClick)}</h2>
+          : b.startsWith("# ") ? <h1>{inline(b.slice(2), i, nums, onGapClick)}</h1>
+          : <p>{inline(b, i, nums, onGapClick)}</p>;
+        return (
+          <Fragment key={i}>
+            {el}
+            {(assigned[i] || []).map((n, k) => <Callout key={`n-${i}-${k}`} n={n} />)}
+          </Fragment>
+        );
       })}
 
       {(placed.length > 0 || orphans.length > 0) && (

@@ -1013,27 +1013,6 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                 </div>
               ) : (
                 <>
-                  <div className="card">
-                    <div className="row" style={{ marginBottom: currentDraft.notes?.length ? "0.6rem" : 0 }}>
-                      <h3 style={{ margin: 0 }}>Editor's notes</h3>
-                      <span className="spacer" />
-                      <button className="btn btn-secondary" onClick={reviewChapter} disabled={working}>
-                        {working && busy.label === "Reviewing" ? <Spin>Reviewing…</Spin> : currentDraft.notes?.length ? "Refresh notes" : "Get editor's notes"}
-                      </button>
-                    </div>
-                    {currentDraft.notes?.length > 0
-                      ? <ul className="note-list">{currentDraft.notes.map((n, i) => (
-                          <li key={i}>
-                            <span>{n}</span>
-                            <span className="note-actions">
-                              <button className="note-discuss" onClick={() => setCoachSeed({ text: n, nonce: Date.now() })} disabled={working}>Discuss with the coach →</button>
-                              <button className="note-discuss" onClick={() => setResearch({ query: n })} disabled={working}>Find sources →</button>
-                            </span>
-                          </li>
-                        ))}</ul>
-                      : <p className="muted" style={{ margin: 0, fontSize: "0.9rem" }}>No notes yet — run a review to get editorial notes on this chapter's text.</p>}
-                  </div>
-
                   <div className="write-split">
                     <div className="card">
                       <div className="row" style={{ marginBottom: "0.7rem" }}>
@@ -1045,12 +1024,18 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                           {currentDraft.polished && " · polished"}
                         </p>
                         <span className="spacer" />
+                        <button className="btn btn-secondary" onClick={reviewChapter} disabled={working}>
+                          {working && busy.label === "Reviewing" ? <Spin>Reviewing…</Spin> : (currentDraft.notes?.length ? "Refresh notes" : "Get editor's notes")}
+                        </button>
                         <button className="btn btn-secondary" onClick={startEdit} disabled={working}>✎ Edit directly</button>
                       </div>
                       <DraftView
                         text={currentDraft.text}
                         footnotes={currentDraft.footnotes}
+                        notes={currentDraft.notes}
                         onGapClick={(marker) => setCoachSeed({ text: marker.replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim(), marker, nonce: Date.now() })}
+                        onDiscussNote={(t) => setCoachSeed({ text: t, nonce: Date.now() })}
+                        onResearchNote={(t) => setResearch({ query: t })}
                       />
                     </div>
                     <CoachPane
@@ -1060,7 +1045,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       brief={project.brief}
                       voiceSample={voiceFor(chapterObj)}
                       draft={currentDraft.text}
-                      notes={currentDraft.notes}
+                      notes={(currentDraft.notes || []).map((n) => (typeof n === "string" ? n : n.note || n.text || "")).filter(Boolean)}
                       working={working}
                       onInsert={insertCoachPassage}
                       seed={coachSeed}

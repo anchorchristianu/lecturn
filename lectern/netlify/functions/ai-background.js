@@ -72,7 +72,20 @@ const MODELS = {
   sort: process.env.MODEL_SORT || "claude-haiku-4-5",
 };
 
-async function callClaude({ system, messages, model, maxTokens }, apiKey, onPartial) {
+// Turn an Anthropic error type into something a non-technical author can act on.
+function friendlyApiError(type, status, raw) {
+  if (type === "rate_limit_error" || status === 429)
+    return "The AI service is rate-limiting this account's API key. Wait a minute and try again — if it keeps happening, this key may be on a low usage tier.";
+  if (type === "overloaded_error" || status === 529)
+    return "The AI service is temporarily overloaded. Please try again in a moment.";
+  if (/credit|billing|quota/i.test(raw || ""))
+    return "This Anthropic API key can't be charged right now (out of credit or billing issue). Check the key's account.";
+  if (type === "authentication_error" || status === 401)
+    return "The Anthropic API key was rejected. Check the key set for this account.";
+  return `The AI service returned an error${status ? ` (${status})` : ""}. Please try again.`;
+}
+
+async function oneCall({ system, messages, model, maxTokens }, apiKey, onPartial) {
   const systemBlocks = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -83,7 +96,13 @@ async function callClaude({ system, messages, model, maxTokens }, apiKey, onPart
     },
     body: JSON.stringify({ model: MODELS[model] || MODELS.main, max_tokens: maxTokens, system: systemBlocks, messages, stream: true }),
   });
-  if (!res.ok) throw new Error(`Claude API ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const raw = await res.text();
+    let type; try { type = JSON.parse(raw)?.error?.type; } catch {}
+    const e = new Error(friendlyApiError(type, res.status, raw));
+    e.transient = res.status === 529 || res.status === 500 || res.status === 503;
+    throw e;
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -91,6 +110,7 @@ async function callClaude({ system, messages, model, maxTokens }, apiKey, onPart
   let text = "";
   let usage = {};
   let lastEmit = 0;
+  let stopReason = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -105,18 +125,48 @@ async function callClaude({ system, messages, model, maxTokens }, apiKey, onPart
       if (!data || data === "[DONE]") continue;
       let evt;
       try { evt = JSON.parse(data); } catch { continue; }
-      if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+      if (evt.type === "error") {
+        // A mid-stream error (overloaded, rate limit, etc). Previously this was
+        // ignored, so the draft just stopped and never saved. Surface it.
+        const type = evt.error?.type;
+        const e = new Error(friendlyApiError(type, null, evt.error?.message));
+        e.transient = type === "overloaded_error" || type === "api_error";
+        throw e;
+      } else if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
         text += evt.delta.text;
         const now = Date.now();
         if (onPartial && now - lastEmit > 900) { lastEmit = now; await onPartial(text); }
       } else if (evt.type === "message_start" && evt.message?.usage) {
         usage = { ...usage, ...evt.message.usage };
-      } else if (evt.type === "message_delta" && evt.usage) {
-        usage = { ...usage, ...evt.usage };
+      } else if (evt.type === "message_delta") {
+        if (evt.usage) usage = { ...usage, ...evt.usage };
+        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
       }
     }
   }
+
+  // The model hit the output length limit before finishing. For our JSON actions
+  // this means truncated, unparseable output — which is exactly the "streams,
+  // stops, never saves" symptom. Fail loudly instead of silently.
+  if (stopReason === "max_tokens") {
+    throw new Error("The draft reached the length limit before it finished, so it couldn't be saved. Try drafting this chapter in smaller sections, or trim the source material feeding it.");
+  }
+
   return { text: text.trim(), usage };
+}
+
+async function callClaude(spec, apiKey, onPartial) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await oneCall(spec, apiKey, onPartial);
+    } catch (e) {
+      lastErr = e;
+      if (!e.transient || attempt === 2) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); // brief backoff, then retry
+    }
+  }
+  throw lastErr;
 }
 
 function parseJson(text) {

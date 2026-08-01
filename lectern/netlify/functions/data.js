@@ -56,6 +56,39 @@ export default async (req) => {
           const p = await createProjectFor(u, body.project || {});
           return json({ project: { ...p, myRole: "owner" } });
         }
+        case "importProject": {
+          // Build a project from an already-written manuscript: an outline entry
+          // and a ready draft for each chapter. No AI drafting — the author's
+          // text comes in as-is and goes straight to review/editing.
+          const raw = (Array.isArray(body.chapters) ? body.chapters : [])
+            .map((c) => ({ title: String(c.title || "").trim(), text: String(c.text || "") }))
+            .filter((c) => c.text.trim());
+          if (!raw.length) return json({ error: "No chapters with text were found to import." }, 400);
+          const seen = new Set();
+          const chapters = raw.slice(0, 80).map((c, i) => {
+            let t = c.title || `Chapter ${i + 1}`;
+            let n = 2; while (seen.has(t)) t = `${c.title || "Chapter"} (${n++})`;
+            seen.add(t);
+            return { title: t, text: c.text };
+          });
+          const project = await createProjectFor(u, {
+            title: (body.title || "").trim() || "Imported manuscript",
+            brief: (body.brief || "").trim(),
+            voiceSample: body.voiceSample || "",
+            outline: chapters.map((c) => ({ chapter: c.title, purpose: "", status: "ready" })),
+            intake: { imported: true },
+          });
+          for (const c of chapters) {
+            const text = tidyDraft(c.text);
+            await putDraft({
+              id: crypto.randomUUID(), projectId: project.id, chapter: c.title,
+              text, words: countWords(text.replace(/\[\^fn_[a-z0-9]+\]/g, "")),
+              notes: [], footnotes: [], flags: [], factcheckSummary: "", polished: false, version: 1,
+            });
+          }
+          await refreshCounts(project.id);
+          return json({ project: { ...(await getProjectById(project.id)), myRole: "owner" } });
+        }
         case "updateProject": {
           const incoming = body.project || {};
           const r = await resolve(incoming.id);

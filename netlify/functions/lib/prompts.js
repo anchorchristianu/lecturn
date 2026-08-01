@@ -326,13 +326,9 @@ const EDIT_LEVELS = {
       `Fix grammar, punctuation, spelling, capitalization, verb tense agreement, ` +
       `number and hyphenation consistency, and bring the text into line with the ` +
       `{STYLE} style guide. Do NOT rewrite for flow or rhythm — that is line editing, ` +
-      `not your job here. Change nothing about voice or meaning.\n\n` +
-      `DO NOT fact-check by asserting. When you encounter a factual claim, a quotation, ` +
-      `a statistic, a date, a name, a scripture reference, or a citation, do NOT "correct" ` +
-      `it and do NOT vouch for it — instead add it to "flags" so the author can verify it ` +
-      `against the source. Getting a misremembered quote or scripture reference "corrected" ` +
-      `to something equally wrong is worse than leaving it flagged.`,
-    flags: true,
+      `not your job here. Change nothing about voice or meaning. Do NOT verify facts or ` +
+      `quotations here — a separate Fact-check pass handles that.`,
+    flags: false,
   },
   proof: {
     model: "sort",
@@ -344,15 +340,58 @@ const EDIT_LEVELS = {
       `error, leave it exactly as it is. No content or meaning changes.`,
     flags: false,
   },
+  factcheck: {
+    model: "main",
+    flagsOnly: true,
+    flags: true,
+    focus:
+      `FACT-CHECK FLAGGING — your ONLY job is to find every checkable claim a careful ` +
+      `editor would want verified before publication, and flag it. Do NOT edit, reword, ` +
+      `or correct anything, and do NOT declare whether a claim is true or false. You are ` +
+      `building the author a verification checklist so nothing wrong reaches print.\n\n` +
+      `Scan the ENTIRE chapter and flag, comprehensively:\n` +
+      `- Direct quotations and anything attributed to a named person (verify the exact ` +
+      `wording AND that the person actually said it).\n` +
+      `- Names of people, books, organizations, and places (verify spelling and identity — ` +
+      `a wrong name is a common and embarrassing error).\n` +
+      `- Every number, statistic, probability, count, date, and span of time.\n` +
+      `- Every scripture or source citation (verify the reference actually points to the ` +
+      `content described).\n` +
+      `- Scientific, historical, and "this source predicted/proves X" claims — especially ` +
+      `ones commonly debated — so the author can attach a solid source.\n\n` +
+      `For each item, quote the exact claim and say specifically what to verify. If you ` +
+      `recognize a LIKELY error (a misattributed name, a commonly-misquoted figure), you ` +
+      `may note the likely correction — but ALWAYS frame it as "verify," never as a ` +
+      `confident fix. Do NOT flag ordinary statements of faith, devotion, or theological ` +
+      `conviction — flag checkable facts, not matters of belief.\n\n` +
+      `SPLIT BUNCHED CLAIMS. If one sentence makes several checkable assertions (e.g., ` +
+      `"written over sixteen centuries by forty authors in three languages"), emit a ` +
+      `SEPARATE flag for EACH assertion, so each can be cited on its own. For every flag, ` +
+      `give an "anchor": the SHORTEST exact, verbatim substring from the draft after which ` +
+      `the citation marker should sit — normally the last few words of that specific claim ` +
+      `— so markers can be placed precisely, even several within one sentence. The anchor ` +
+      `must be copied character-for-character from the draft. Put EVERYTHING in "flags" and ` +
+      `return an empty "suggestions" array.`,
+  },
 };
 
-export function editPass({ brief, voiceSample, chapter, currentDraft, level, styleGuide }) {
+export function editPass({ brief, voiceSample, chapter, currentDraft, level, styleGuide, styleSheet }) {
   const cfg = EDIT_LEVELS[level] || EDIT_LEVELS.line;
   const focus = cfg.focus.replace("{STYLE}", styleGuide || "Chicago Manual of Style");
 
+  // Established project style-sheet decisions enforced during line/copy/proof.
+  let sheetBlock = "";
+  if (!cfg.flagsOnly && Array.isArray(styleSheet) && styleSheet.length) {
+    const lines = styleSheet.slice(0, 250).map((e) => `- ${e.term} → ${e.ruling}${e.category ? ` (${e.category})` : ""}`).join("\n");
+    sheetBlock =
+      `\n\nPROJECT STYLE SHEET — these are the book's established spelling, capitalization, ` +
+      `naming, and terminology decisions. Make the chapter consistent with them and suggest ` +
+      `a fix for any deviation. Respect the author's coined/framework terms exactly as written:\n${lines}`;
+  }
+
   const system = projectContext({ brief, voiceSample }) +
     `\n\nYou are a professional editor doing ONE specific pass on a single chapter. ` +
-    focus +
+    focus + sheetBlock +
     `\n\nReturn discrete, reviewable suggestions — the author will accept or reject ` +
     `each one, so each must stand alone. CRITICAL: in "original", quote the text to be ` +
     `changed EXACTLY as it appears in the draft — verbatim, character for character, ` +
@@ -360,25 +399,176 @@ export function editPass({ brief, voiceSample, chapter, currentDraft, level, sty
     `do not include it.`;
 
   const flagsField = cfg.flags
-    ? `,\n  "flags": [ { "text": "the claim/quote/citation, quoted", "concern": "what to verify and why" } ]`
+    ? `,\n  "flags": [ { "text": "the single claim, quoted", "anchor": "the SHORTEST exact verbatim substring from the draft to place the citation marker after — usually the end of this specific claim", "concern": "what to verify and why", "category": "e.g. quote, name, statistic, date, scripture, scientific claim, historical claim" } ]`
     : "";
+
+  const tail = cfg.flagsOnly
+    ? `If you find no checkable claims at all, return an empty "flags" array and say so in the summary.`
+    : `If the chapter is already clean at this level, return an empty "suggestions" array and say so in the summary.`;
 
   const user = `Chapter: "${chapter.chapter}"${chapter.purpose ? ` — ${chapter.purpose}` : ""}
 
 Do the ${level} pass on the draft below. Return ONLY valid JSON in this shape:
 {
-  "summary": "1-2 plain sentences: what you found and the overall state of the prose at this level",
+  "summary": "1-2 plain sentences: what you found and the overall state at this level",
   "suggestions": [
     { "original": "verbatim text from the draft", "replacement": "the proposed text", "why": "short, concrete reason", "category": "e.g. grammar, punctuation, spelling, word choice, rhythm, redundancy, consistency" }
   ]${flagsField}
 }
 
-If the chapter is already clean at this level, return an empty "suggestions" array and say so in the summary.
+${tail}
 
 DRAFT:
 """${currentDraft}"""`;
 
   return { system, messages: [{ role: "user", content: user }], model: cfg.model, maxTokens: 6000, json: true };
+}
+
+// FORMAT CITATION → turn rough source info into a clean Chicago-style note.
+// Never invents missing details (no made-up pages, publishers, or dates).
+export function formatCitation({ raw }) {
+  const system =
+    `You format source information into a single Chicago Manual of Style (17th/18th ed.) ` +
+    `NOTE (footnote/endnote form, not bibliography form). Use ONLY the details provided. ` +
+    `Do NOT invent or guess missing information — no fabricated page numbers, publishers, ` +
+    `cities, dates, or URLs. If a piece is missing, simply omit it and format what's there. ` +
+    `For a Bible reference, use standard form (e.g., "Ezekiel 26:3–5"). Return the note text ` +
+    `only, with no surrounding quotation marks.`;
+  const user = `Format this source as a Chicago note. Return ONLY valid JSON: { "citation": "the formatted note" }
+
+"""${raw}"""`;
+  return { system, messages: [{ role: "user", content: user }], model: "sort", maxTokens: 400, json: true };
+}
+
+// STYLE SHEET → the copyeditor's consistency record for the whole book. Scans
+// the manuscript for the author's established forms and coined vocabulary, and
+// finds inconsistencies (same term spelled/capitalized/hyphenated differently).
+export function styleSheet({ brief, voiceSample, chapters, guide }) {
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou are a copyeditor building a STYLE SHEET — the living record of spelling, ` +
+    `capitalization, hyphenation, naming, number, and terminology decisions that keep a ` +
+    `book consistent. Base conventions on the ${guide || "Chicago Manual of Style"}, but ` +
+    `the AUTHOR'S established usage and coined/framework vocabulary always win, even when ` +
+    `unconventional. Do NOT change any text — you are producing a reference list.\n\n` +
+    `Do two things: (1) record the book's preferred forms, especially distinctive recurring ` +
+    `terms, proper names (people, places, books, organizations), and the book's own framework ` +
+    `vocabulary and acronyms; and (2) find INCONSISTENCIES — the same term spelled, ` +
+    `capitalized, or hyphenated more than one way across the chapters. When usage varies, ` +
+    `prefer the form the author uses most often. Keep rulings short and concrete.`;
+
+  const ch = (chapters || [])
+    .map((c, i) => `### ${i + 1}. ${c.chapter}\n${c.text || "(not drafted)"}`)
+    .join("\n\n") || "(no chapters yet)";
+
+  const user = `Here is the manuscript. Build the style sheet.
+
+${ch}
+
+Return ONLY valid JSON in this shape:
+{
+  "summary": "1-2 sentences on the overall consistency of the manuscript",
+  "entries": [
+    { "term": "the word, name, or concept", "ruling": "the decision — e.g. 'one word, lowercase' or 'Grow, Reflect, Apply, Yield — always capitalized'", "category": "spelling | capitalization | hyphenation | name | numbers | term | framework" }
+  ],
+  "inconsistencies": [
+    { "term": "the term that varies", "variants": ["how it appears one way", "how it appears another way"], "suggestion": "the form to standardize on and why" }
+  ]
+}`;
+
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 4000, json: true };
+}
+
+// LAUNCH KIT → marketing copy and metadata derived from the finished book.
+// This is the one post-manuscript area where AI copy is genuinely useful. It must
+// NOT invent facts about the real author or fabricate endorsements — the bio and
+// outreach pieces use [bracketed placeholders] the author fills in.
+export function launchKit({ brief, voiceSample, title, outline }) {
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou write book marketing copy and publishing metadata for a finished nonfiction ` +
+    `book. Match the book's actual subject and tone, and speak directly to its intended ` +
+    `reader. Be specific and benefit-driven — name the real tension the reader feels and ` +
+    `what they'll gain — not generic hype or empty superlatives.\n\n` +
+    `STRICT: Do NOT invent facts about the author, and do NOT fabricate endorsements, ` +
+    `quotes, reviews, sales figures, or credentials. For the author bio, use ONLY ` +
+    `biographical details that appear in the material above; for anything you don't know, ` +
+    `leave a [bracketed placeholder] for the author to fill in. The endorsement email is a ` +
+    `template the author will send — it must not contain any fabricated praise.`;
+
+  const ol = (outline || []).map((c, i) => `${i + 1}. ${c.chapter}${c.purpose ? ` — ${c.purpose}` : ""}`).join("\n") || "(no outline yet)";
+
+  const user = `Book title: "${title || "Untitled"}"
+
+Chapter outline:
+${ol}
+
+Write the launch kit. Return ONLY valid JSON in this shape:
+{
+  "tagline": "a single-sentence hook that captures the promise of the book",
+  "description": "the sales description (about 150-200 words) — the jacket / online-store copy that makes the right reader want this book",
+  "backCover": "back-cover copy for the printed book: a tight version of the description, in short punchy paragraphs",
+  "keywords": ["7 search keywords or short phrases a reader might use to find this book"],
+  "categories": ["3-5 book-category suggestions (BISAC-style, e.g. 'Religion / Christian Living / Professional Growth')"],
+  "bio": "a short third-person author bio (2-4 sentences) using ONLY known details, with [placeholders] for anything not provided",
+  "endorsementEmail": "a short, warm email template the author can send to ask a respected person for an endorsement, with [placeholders] for names and specifics"
+}`;
+
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 2500, json: true };
+}
+
+// Multi-turn coaching conversation for a single chapter. Unlike every other
+// action this is NOT json — it returns plain assistant text, and it carries the
+// running conversation in `messages`. Its whole job is to draw material out of
+// the author and help shape it in their voice; it must never invent facts,
+// stats, quotes, or anecdotes. When the author has given enough, it offers a
+// finished passage wrapped in ⟦DRAFT⟧…⟦/DRAFT⟧ that the client can insert.
+function discuss({ chapter, brief, voiceSample, draft, notes, messages, authorName }) {
+  const chapterTitle = typeof chapter === "string" ? chapter : (chapter?.chapter || "this chapter");
+  const who = authorName || "the author";
+  const editorNotes = Array.isArray(notes) && notes.length
+    ? notes.map((n) => `- ${n}`).join("\n")
+    : "(none recorded)";
+
+  const system = `You are the writing coach built into Lectern, a tool that helps an author turn their OWN spoken material into a book. You are working with ${who} on a single chapter. You are an editor and coach — never the author.
+
+# The chapter
+Title: "${chapterTitle}".
+This chapter is written in ${who}'s voice. Match their register from the voice sample below; never flatten it into generic prose.
+
+Book brief:
+${brief || "(no brief provided)"}
+
+Voice sample — how ${who} actually sounds, match this:
+${voiceSample ? `"""${voiceSample}"""` : "(no voice sample available yet)"}
+
+# Current draft (for grounding — don't quote it back wholesale)
+"""
+${draft || "(no draft yet for this chapter)"}
+"""
+
+# Editor's notes still open on this chapter
+${editorNotes}
+
+# Your rules — these are absolute
+1. NEVER invent facts, statistics, study findings, figures, quotes, dates, or anecdotes — not even plausible-sounding ones. You do not have ${who}'s memories; only they do. If a point needs a number or a story they haven't given you, you may NOT manufacture it.
+2. You cannot browse the web. If they ask you to "find statistics" or "find real stories to cite," say so plainly, then help: name the specific, credible kinds of sources worth checking for this topic, say what to search for, and offer to leave a clearly-marked [GAP: exactly what to find and cite] placeholder so nothing unverified slips into the book. Never fabricate a citation. (A later version of Lectern will fetch real, citable sources here for them to verify.)
+3. Preserve ${who}'s voice. Any sentence you propose must be built ONLY from what they have actually told you, and must sound like them — not like an AI.
+4. Draw material OUT of them. Prefer one good, specific question over a paragraph of advice. Ask ONE question at a time. Reflect back what they give you and help shape it.
+
+# How to respond
+- Warm, brief, plain language. The author may be older and non-technical. No jargon, no bulleted lectures. A few sentences per turn.
+- Default to letting them lead. But if they seem unsure or stuck, or ask for help getting started, offer two or three concrete directions they could choose from — angles or starting questions drawn from the open note and their own world. Frame them as on-ramps to pull out THEIR memory, never as content you will write for them.
+- When — and only when — they have given you enough real material that a passage is genuinely ready, offer to write it into the draft. Present that final passage wrapped EXACTLY like this, on their own lines:
+⟦DRAFT⟧
+(the passage, in ${who}'s voice, built only from what they told you)
+⟦/DRAFT⟧
+Keep it to what fills the gap. Do not include a ⟦DRAFT⟧ block until you actually have their material — if you're still drawing it out, just ask your next question.
+- An honest [GAP] placeholder is always better than filler or invention.`;
+
+  const thread = Array.isArray(messages) && messages.length
+    ? messages
+    : [{ role: "user", content: "Let's work on this chapter." }];
+
+  return { system, messages: thread, model: "main", maxTokens: 1000, json: false };
 }
 
 export const ACTIONS = {
@@ -391,4 +581,8 @@ export const ACTIONS = {
   polish: (p) => polishDraft(p),
   developmental_review: (p) => developmentalReview(p),
   edit_pass: (p) => editPass(p),
+  format_citation: (p) => formatCitation(p),
+  style_sheet: (p) => styleSheet(p),
+  launch_kit: (p) => launchKit(p),
+  discuss: (p) => discuss(p),
 };

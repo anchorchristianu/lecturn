@@ -315,6 +315,29 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
     });
   }
 
+  // Resolve / reopen an editor's note, like closing a Google Docs comment.
+  // Optimistic so it disappears immediately; the save persists in the background.
+  function noteKey(n) {
+    const note = typeof n === "string" ? n : (n.note || n.text || "");
+    const anchor = typeof n === "string" ? "" : (n.anchor || "");
+    return note + "\u0001" + anchor;
+  }
+  async function resolveNote(target, resolved) {
+    if (!currentDraft) return;
+    const tk = noteKey(target);
+    const notes = (currentDraft.notes || []).map((n) => {
+      if (noteKey(n) !== tk) return n;
+      const base = typeof n === "string" ? { anchor: "", note: n } : { ...n };
+      return { ...base, resolved };
+    });
+    const next = { ...currentDraft, notes };
+    onSaved?.(next);
+    try {
+      const resp = await post({ op: "saveDraft", draft: next });
+      if (resp?.draft) onSaved?.(resp.draft);
+    } catch (e) { setErr(String(e.message || e)); await onReload(); }
+  }
+
   // ---- soft per-chapter lock helpers ----
   const lockChapter = (chapter) => post({ op: "lockChapter", projectId: project.id, chapter });
   const unlockChapter = (chapter) => post({ op: "unlockChapter", projectId: project.id, chapter }).catch(() => {});
@@ -1036,6 +1059,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                         onGapClick={(marker) => setCoachSeed({ text: marker.replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim(), marker, nonce: Date.now() })}
                         onDiscussNote={(t) => setCoachSeed({ text: t, nonce: Date.now() })}
                         onResearchNote={(t) => setResearch({ query: t })}
+                        onResolveNote={resolveNote}
                       />
                     </div>
                     <CoachPane

@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { numberMap, orderedIds } from "../footnotes.js";
 
 // Split a line into text, [GAP: ...] spans, and [^fn_...] footnote markers.
@@ -36,19 +36,24 @@ function norm(s) {
     .replace(/\s+/g, " ").trim();
 }
 
-export default function DraftView({ text, footnotes, notes, onGapClick, onDiscussNote, onResearchNote }) {
+export default function DraftView({ text, footnotes, notes, onGapClick, onDiscussNote, onResearchNote, onResolveNote }) {
+  const [showResolved, setShowResolved] = useState(false);
   if (!text) return null;
   const nums = numberMap(text);
   const blocks = text.split(/\n{2,}/);
 
-  // Assign each editor's note to the first block that contains its anchor quote.
-  const noteList = (notes || [])
-    .map((n) => (typeof n === "string" ? { anchor: "", note: n } : { anchor: n.anchor || "", note: n.note || n.text || "" }))
+  // Normalize notes; separate resolved (like a resolved Google Docs comment).
+  const allNotes = (notes || [])
+    .map((n) => (typeof n === "string" ? { anchor: "", note: n, resolved: false } : { anchor: n.anchor || "", note: n.note || n.text || "", resolved: !!n.resolved }))
     .filter((n) => n.note);
+  const activeNotes = allNotes.filter((n) => !n.resolved);
+  const resolvedNotes = allNotes.filter((n) => n.resolved);
+
+  // Assign each active note to the first block that contains its anchor quote.
   const blockNorms = blocks.map((b) => norm(b));
   const assigned = {};
   const general = [];
-  for (const n of noteList) {
+  for (const n of activeNotes) {
     const a = norm(n.anchor);
     let bi = -1;
     if (a) {
@@ -70,12 +75,11 @@ export default function DraftView({ text, footnotes, notes, onGapClick, onDiscus
     return (
       <div className="inline-note">
         <p className="inline-note-text">{n.note}</p>
-        {(onDiscussNote || onResearchNote) && (
-          <div className="note-actions">
-            {onDiscussNote && <button className="note-discuss" onClick={() => onDiscussNote(n.note)}>Discuss with the coach →</button>}
-            {onResearchNote && <button className="note-discuss" onClick={() => onResearchNote(n.note)}>Find sources →</button>}
-          </div>
-        )}
+        <div className="note-actions">
+          {onDiscussNote && <button className="note-discuss" onClick={() => onDiscussNote(n.note)}>Discuss with the coach →</button>}
+          {onResearchNote && <button className="note-discuss" onClick={() => onResearchNote(n.note)}>Find sources →</button>}
+          {onResolveNote && <button className="note-discuss note-resolve" onClick={() => onResolveNote(n, true)}>✓ Resolve</button>}
+        </div>
       </div>
     );
   }
@@ -102,6 +106,24 @@ export default function DraftView({ text, footnotes, notes, onGapClick, onDiscus
           </Fragment>
         );
       })}
+
+      {resolvedNotes.length > 0 && (
+        <div className="resolved-notes">
+          <button className="btn-ghost" style={{ padding: 0, fontWeight: 600 }} onClick={() => setShowResolved((v) => !v)}>
+            {showResolved ? "▾" : "▸"} Resolved notes ({resolvedNotes.length})
+          </button>
+          {showResolved && resolvedNotes.map((n, k) => (
+            <div className="inline-note resolved" key={k}>
+              <p className="inline-note-text">{n.note}</p>
+              {onResolveNote && (
+                <div className="note-actions">
+                  <button className="note-discuss" onClick={() => onResolveNote(n, false)}>Reopen</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {(placed.length > 0 || orphans.length > 0) && (
         <div className="notes">

@@ -2,11 +2,21 @@ import { Fragment } from "react";
 import { numberMap, orderedIds } from "../footnotes.js";
 
 // Split a line into text, [GAP: ...] spans, and [^fn_...] footnote markers.
-function inline(text, keyBase, nums) {
+function inline(text, keyBase, nums, onGapClick) {
   const parts = text.split(/(\[GAP:[^\]]*\]|\[\^fn_[a-z0-9]+\])/g);
   return parts.map((p, i) => {
     const key = `${keyBase}-${i}`;
-    if (p.startsWith("[GAP:")) return <span className="gap" key={key}>{p}</span>;
+    if (p.startsWith("[GAP:")) return (
+      <span
+        className={onGapClick ? "gap gap-clickable" : "gap"}
+        key={key}
+        onClick={onGapClick ? () => onGapClick(p) : undefined}
+        title={onGapClick ? "Talk this through with the coach" : undefined}
+        role={onGapClick ? "button" : undefined}
+        tabIndex={onGapClick ? 0 : undefined}
+        onKeyDown={onGapClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onGapClick(p); } } : undefined}
+      >{p}</span>
+    );
     const fm = p.match(/^\[\^(fn_[a-z0-9]+)\]$/);
     if (fm) {
       const n = nums[fm[1]];
@@ -16,7 +26,7 @@ function inline(text, keyBase, nums) {
   });
 }
 
-export default function DraftView({ text, footnotes }) {
+export default function DraftView({ text, footnotes, onGapClick }) {
   if (!text) return null;
   const nums = numberMap(text);
   const blocks = text.split(/\n{2,}/);
@@ -30,10 +40,10 @@ export default function DraftView({ text, footnotes }) {
     <div className="draft-read">
       {blocks.map((block, i) => {
         const b = block.trim();
-        if (b.startsWith("### ")) return <h3 key={i}>{inline(b.slice(4), i, nums)}</h3>;
-        if (b.startsWith("## ")) return <h2 key={i}>{inline(b.slice(3), i, nums)}</h2>;
-        if (b.startsWith("# ")) return <h1 key={i}>{inline(b.slice(2), i, nums)}</h1>;
-        return <p key={i}>{inline(b, i, nums)}</p>;
+        if (b.startsWith("### ")) return <h3 key={i}>{inline(b.slice(4), i, nums, onGapClick)}</h3>;
+        if (b.startsWith("## ")) return <h2 key={i}>{inline(b.slice(3), i, nums, onGapClick)}</h2>;
+        if (b.startsWith("# ")) return <h1 key={i}>{inline(b.slice(2), i, nums, onGapClick)}</h1>;
+        return <p key={i}>{inline(b, i, nums, onGapClick)}</p>;
       })}
 
       {(placed.length > 0 || orphans.length > 0) && (

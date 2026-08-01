@@ -64,14 +64,19 @@ export const ai = async (action, payload, onProgress) => {
 
   // 3) Poll for the result, surfacing partial text as it streams in.
   const started = Date.now();
-  const MAX_MS = 4 * 60 * 1000; // give up after 4 minutes
+  // The background worker may run up to ~15 min; a full chapter draft (6000
+  // output tokens) can take a few minutes under load. Keep the client's ceiling
+  // safely BELOW the worker's so we don't abandon a job the server will finish
+  // (abandoning it was what erased/reset chapters). Polling is cheap.
+  const MAX_MS = 12 * 60 * 1000;
+  const pollOnce = () =>
+    fetch(`/.netlify/functions/job?id=${jobId}`, opts("GET")).then(handle).then((r) => r.job);
   let delay = 600;
   while (true) {
     await sleep(delay);
     let job;
     try {
-      const r = await fetch(`/.netlify/functions/job?id=${jobId}`, opts("GET")).then(handle);
-      job = r.job;
+      job = await pollOnce();
     } catch (e) {
       if (e.status === 401) throw e; // signed out — stop polling
       job = { status: "pending" };
@@ -79,7 +84,16 @@ export const ai = async (action, payload, onProgress) => {
     if (job?.status === "done") return job.result;
     if (job?.status === "error") throw new Error(job.error || "The AI step failed. Please try again.");
     if (job?.partial && onProgress) { try { onProgress(job.partial); } catch {} }
-    if (Date.now() - started > MAX_MS) throw new Error("This is taking unusually long — please try again in a moment.");
+    if (Date.now() - started > MAX_MS) {
+      // One last look before giving up — the worker may have finished right at
+      // the deadline. Drafting results are also saved server-side, so even if
+      // this throws, the chapter is recoverable by reloading.
+      try {
+        const last = await pollOnce();
+        if (last?.status === "done") return last.result;
+      } catch {}
+      throw new Error("This step is taking longer than usual. Your work may already be saved — reopen the chapter in a moment to check.");
+    }
     delay = Math.min(delay + 150, 1000);
   }
 };

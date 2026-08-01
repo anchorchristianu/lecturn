@@ -1,9 +1,20 @@
 // netlify/functions/admin.js — admin-only platform stats.
 // Gated by the ADMIN_EMAILS env var (comma-separated). Returns overall and
 // per-user stats: projects, % complete, words, and AI usage / estimated cost.
-import { getUser } from "./lib/session.js";
+import { getUser, hashPassword } from "./lib/session.js";
 import { json, listUsers, listAllProjects, getUsageMap, getUserByEmail, putUser } from "./lib/store.js";
 import { validateKey } from "./lib/keys.js";
+import { randomBytes } from "node:crypto";
+
+// A short, unambiguous temporary password an admin can read aloud or text to a
+// user. Avoids look-alike characters (0/o/1/l/i) and groups for readability.
+function tempPassword() {
+  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  let s = "";
+  for (let i = 0; i < 10; i++) s += alphabet[bytes[i] % alphabet.length];
+  return `${s.slice(0, 4)}-${s.slice(4, 7)}-${s.slice(7, 10)}`;
+}
 
 const ADMINS = (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
@@ -59,6 +70,22 @@ export default async (req) => {
       await putUser(target);
       return json({ ok: true });
     }
+    if (body.op === "resetUserPassword") {
+      // Fulfils "forgot password" without an email provider: the admin either
+      // sets a specific password or generates a temporary one to relay. Either
+      // way it's scrypt-hashed at rest; the plaintext is returned only once.
+      let pw = (body.newPassword || "").trim();
+      let generated = "";
+      if (pw) {
+        if (pw.length < 8) return json({ error: "Use at least 8 characters." }, 400);
+      } else {
+        pw = generated = tempPassword();
+      }
+      target.password = hashPassword(pw);
+      delete target.resetRequestedAt; // request handled
+      await putUser(target);
+      return json({ ok: true, tempPassword: generated || undefined });
+    }
     return json({ error: "Unknown op" }, 400);
   }
 
@@ -78,6 +105,8 @@ export default async (req) => {
       createdAt: usr.createdAt || null,
       covered: !!usr.covered,
       hasKey: !!(usr.apiKey && usr.apiKey.length),
+      resetRequested: !!usr.resetRequestedAt,
+      resetRequestedAt: usr.resetRequestedAt || null,
       projects: ps.length,
       avgPct,
       words,
@@ -88,7 +117,7 @@ export default async (req) => {
       estCost: +costOf(usage.byModel).toFixed(2),
       projectList: ps,
     };
-  }).sort((a, b) => b.projects - a.projects || b.estCost - a.estCost);
+  }).sort((a, b) => (b.resetRequested - a.resetRequested) || (b.projects - a.projects) || (b.estCost - a.estCost));
 
   const allStats = allProjects.map(projectStat);
   const overall = {

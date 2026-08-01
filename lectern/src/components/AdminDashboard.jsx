@@ -25,6 +25,8 @@ function UserRow({ u, onChanged }) {
   const [open, setOpen] = useState(false);
   const [manage, setManage] = useState(false);
   const [key, setKey] = useState("");
+  const [newpw, setNewpw] = useState("");
+  const [temp, setTemp] = useState(""); // temporary password to show once, if generated
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
 
@@ -37,6 +39,17 @@ function UserRow({ u, onChanged }) {
     finally { setBusy(""); }
   }
 
+  async function resetPw(newPassword) {
+    setErr(""); setBusy("reset"); setTemp("");
+    try {
+      const r = await adminPost({ op: "resetUserPassword", email: u.email, ...(newPassword ? { newPassword } : {}) });
+      if (r.tempPassword) setTemp(r.tempPassword);
+      setNewpw("");
+      await onChanged();
+    } catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(""); }
+  }
+
   return (
     <>
       <tr style={{ borderTop: "1px solid var(--line)" }}>
@@ -44,6 +57,11 @@ function UserRow({ u, onChanged }) {
           <div style={{ fontWeight: 600 }}>{u.name || u.email}</div>
           {u.name && <div className="muted" style={{ fontSize: "0.8rem" }}>{u.email}</div>}
           <span className="status" style={{ fontSize: "0.68rem", marginTop: "0.2rem", display: "inline-block" }}>{keyStatus}</span>
+          {u.resetRequested && (
+            <span className="status thin" title="This user asked to reset their password" style={{ fontSize: "0.68rem", marginTop: "0.2rem", marginLeft: "0.3rem", display: "inline-block" }}>
+              reset requested
+            </span>
+          )}
         </td>
         <td style={{ textAlign: "center" }}>{u.projects}</td>
         <td style={{ textAlign: "center" }}>{u.avgPct}%</td>
@@ -97,6 +115,39 @@ function UserRow({ u, onChanged }) {
                 )}
               </div>
               <span className="muted" style={{ fontSize: "0.8rem" }}>A key you set here is verified with Anthropic, stored securely, and never shown again. Their own key always takes precedence over coverage.</span>
+
+              <div style={{ borderTop: "1px solid var(--line)", paddingTop: "0.6rem" }}>
+                <div className="row" style={{ gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+                  <b style={{ fontSize: "0.9rem" }}>Password</b>
+                  {u.resetRequested && <span className="status thin" style={{ fontSize: "0.66rem", marginLeft: 0 }}>reset requested</span>}
+                  <span className="spacer" />
+                  <button className="btn btn-secondary" style={{ padding: "0.3rem 0.7rem", fontSize: "0.85rem" }} onClick={() => resetPw("")} disabled={!!busy}>
+                    {busy === "reset" ? "Setting…" : "Generate temporary password"}
+                  </button>
+                </div>
+                <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap", marginTop: "0.4rem" }}>
+                  <input
+                    type="text" value={newpw} onChange={(e) => setNewpw(e.target.value)}
+                    placeholder="…or type a specific new password" autoComplete="off" spellCheck={false}
+                    style={{ flex: "2 1 240px", padding: "0.4rem 0.6rem", border: "1px solid var(--line-strong)", borderRadius: 8, font: "inherit", background: "var(--surface)" }}
+                    disabled={!!busy}
+                  />
+                  <button className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: "0.85rem" }} onClick={() => resetPw(newpw.trim())} disabled={!!busy || newpw.trim().length < 8}>
+                    Set password
+                  </button>
+                </div>
+                {temp && (
+                  <div className="banner ok" style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                    New password for {u.name || u.email}: <code style={{ fontSize: "1.05rem", fontWeight: 700 }}>{temp}</code>
+                    <button className="btn btn-ghost" style={{ padding: "0.1rem 0.5rem", fontSize: "0.8rem", marginLeft: "0.4rem" }} onClick={() => navigator.clipboard?.writeText(temp)}>Copy</button>
+                    <div style={{ fontSize: "0.8rem", marginTop: "0.3rem", opacity: 0.85 }}>Shown once. Pass it to them privately — they can sign in with it and keep using it until they change it.</div>
+                  </div>
+                )}
+                <span className="muted" style={{ fontSize: "0.8rem", display: "block", marginTop: "0.4rem" }}>
+                  No reset emails are sent — you set the password here and relay it to the person yourself.
+                </span>
+              </div>
+
               {err && <span style={{ color: "var(--danger, #b3261e)", fontSize: "0.85rem" }}>{err}</span>}
             </div>
           </td>

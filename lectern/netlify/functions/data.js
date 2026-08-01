@@ -3,7 +3,8 @@ import {
   listProjectsForUser, getProjectById, putProjectRaw, createProjectFor, deleteProjectById,
   memberRole, addMember, removeMemberFrom,
   listSources, putSource, deleteSource,
-  listDrafts, putDraft, refreshCounts,
+  listDrafts, putDraft, refreshCounts, persistDraft,
+  getThread, putThread,
   getUserByEmail, getLock, setLock, delLock, putJob, json,
 } from "./lib/store.js";
 import { getUser } from "./lib/session.js";
@@ -63,7 +64,7 @@ export default async (req) => {
           // Preserve author assignments (keyed by chapter name) across content edits.
           const prevAuthor = Object.fromEntries((server.outline || []).map((c) => [c.chapter, c.authorId]));
           for (const k of CONTENT_FIELDS) if (k in incoming) server[k] = incoming[k];
-          server.outline = (server.outline || []).map((c) => ({ ...c, authorId: prevAuthor[c.chapter] || server.ownerId }));
+          server.outline = (server.outline || []).map((c) => ({ ...c, authorId: c.authorId || prevAuthor[c.chapter] || server.ownerId }));
           return json({ project: { ...(await putProjectRaw(server)), myRole: r.role } });
         }
         case "deleteProject": {
@@ -188,19 +189,20 @@ export default async (req) => {
           if (r.error) return r.error;
           const held = await getLock(projectId, body.draft.chapter);
           if (held && held.uid !== uid) return json({ error: `${held.name || "Someone"} is editing this chapter`, lock: held }, 409);
-          const text = tidyDraft(body.draft.text || "");
-          const d = {
-            id: body.draft.id || crypto.randomUUID(),
-            projectId, chapter: body.draft.chapter, text,
-            words: countWords(text.replace(/\[\^fn_[a-z0-9]+\]/g, "")),
-            notes: body.draft.notes || [], footnotes: body.draft.footnotes || [],
-            flags: body.draft.flags || [], factcheckSummary: body.draft.factcheckSummary || "",
-            polished: body.draft.polished || false, version: (body.draft.version || 0) + 1,
-            authorId: body.draft.authorId || undefined,
-          };
-          await putDraft(d);
-          await refreshCounts(projectId);
+          const d = await persistDraft(body.draft);
           return json({ draft: d });
+        }
+        case "getThread": {
+          const r = await resolve(body.projectId);
+          if (r.error) return r.error;
+          const messages = await getThread(body.projectId, body.chapter);
+          return json({ messages });
+        }
+        case "saveThread": {
+          const r = await resolve(body.projectId);
+          if (r.error) return r.error;
+          const messages = await putThread(body.projectId, body.chapter, body.messages);
+          return json({ messages });
         }
         default:
           return json({ error: `Unknown op: ${op}` }, 400);

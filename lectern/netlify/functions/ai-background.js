@@ -10,8 +10,62 @@
 
 import { ACTIONS } from "./lib/prompts.js";
 import { getUser } from "./lib/session.js";
-import { getJob, putJob, addUsage, getUserByEmail } from "./lib/store.js";
+import {
+  getJob, putJob, addUsage, getUserByEmail,
+  getProjectById, memberRole, getLock, getDraftByChapter, persistDraft,
+} from "./lib/store.js";
 import { resolveUserKey } from "./lib/keys.js";
+
+// Drafting actions produce a chapter we must persist server-side (see below).
+const DRAFTING = new Set(["draft", "refine", "polish"]);
+
+// Persist a finished drafting result to the drafts store, using the SAME helper
+// the sync save uses. This is what makes a completed chapter durable regardless
+// of whether the client is still polling: even if the browser timed out or
+// closed, the chapter is saved and shows up on the next load. Returns the saved
+// draft, or null if nothing was persisted (bad input / no access / locked by
+// someone else / worker couldn't match the chapter).
+async function persistDrafting(uid, action, payload, result) {
+  try {
+    if (!DRAFTING.has(action)) return null;
+    const draftText = result && typeof result.draft === "string" ? result.draft.trim() : "";
+    if (!draftText) return null;
+    const save = (payload && payload.save) || {};
+    const { projectId, chapter } = save;
+    if (!projectId || !chapter) return null;
+
+    // Access control: only persist for a real member of this project.
+    const project = await getProjectById(projectId);
+    if (!project || !memberRole(project, uid)) return null;
+
+    // Respect a soft edit lock held by someone else (mirrors the sync save).
+    const held = await getLock(projectId, chapter);
+    if (held && held.uid !== uid) return null;
+
+    const existing = await getDraftByChapter(projectId, chapter);
+
+    if (action === "draft") {
+      // A fresh draft replaces the chapter text and notes; footnotes/flags reset
+      // (same semantics as the old client save, which did not carry them over).
+      return await persistDraft({
+        projectId, chapter,
+        text: result.draft, notes: result.notes || [],
+        version: existing?.version || 0,
+      });
+    }
+    // refine / polish preserve the existing draft's footnotes/flags/id and only
+    // swap the text (+ notes for refine, +polished for polish).
+    const base = existing || { projectId, chapter };
+    return await persistDraft({
+      ...base,
+      text: result.draft || existing?.text || "",
+      notes: action === "refine" ? (result.notes || []) : base.notes,
+      polished: action === "polish" ? true : base.polished,
+    });
+  } catch {
+    return null; // non-fatal: the client fallback save still runs
+  }
+}
 
 const MODELS = {
   main: process.env.MODEL_MAIN || "claude-sonnet-4-6",
@@ -110,6 +164,12 @@ export default async (req) => {
     });
     const text = out.text;
     const result = spec.json ? parseJson(text) : { text };
+
+    // Durably save drafting results here so a slow or closed client can't lose a
+    // finished chapter. If this succeeds, `result.saved` tells the client the
+    // draft is already stored and it should skip its own save.
+    const saved = await persistDrafting(u.uid, job.action, job.payload || {}, result);
+    if (saved) result.saved = saved;
 
     try {
       const u2 = out.usage || {};

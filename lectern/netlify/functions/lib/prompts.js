@@ -584,6 +584,16 @@ function summarizeManuscript({ text }) {
   return { system, messages: [{ role: "user", content: user }], model: "sort", maxTokens: 400, json: false };
 }
 
+// Per-chapter editor's notes on an EXISTING chapter (imported or hand-written) —
+// the margin notes a good editor leaves, without rewriting a word.
+function reviewNotes({ brief, voiceSample, chapter, currentDraft }) {
+  const title = typeof chapter === "string" ? chapter : (chapter?.chapter || "this chapter");
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou are leaving an author editorial notes on a single chapter they've written or brought in — the kind of margin notes a good editor gives. Read the chapter as it stands and surface what's genuinely worth their attention: what's strong and should stay, what's thin, unclear, or unsupported, where it drags or rushes, where a claim wants an example or evidence, where the voice wobbles, what to cut or expand, and anything the chapter promises but doesn't deliver. Reference specific moments. These are NOTES, not edits — do not rewrite, line-edit, or invent content, and don't restate the chapter back. Be warm but candid; a handful of real, specific notes beats a long vague list.`;
+  const user = `Chapter: "${title}".\n\nThe chapter as it stands:\n"""\n${currentDraft || "(empty)"}\n"""\n\nReturn ONLY valid JSON:\n{ "notes": ["a short, specific editorial note", "another note"] }`;
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 1500, json: true };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -599,4 +609,5 @@ export const ACTIONS = {
   launch_kit: (p) => launchKit(p),
   discuss: (p) => discuss(p),
   summarize: (p) => summarizeManuscript(p),
+  review_notes: (p) => reviewNotes(p),
 };

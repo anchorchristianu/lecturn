@@ -260,3 +260,17 @@ button { font-family: var(--ui); cursor: pointer; }
   .write-split { grid-template-columns:1fr; }
   .coach-pane { position:static; max-height:none; }
 }
+
+/* ---- Wide editing workspace ---- */
+/* The book-editing view breaks out of the 880px reading container so the draft
+   column has room to breathe next to the coaching pane. Header, tabs, and all
+   tab content share this width so everything stays left-aligned. */
+.workspace-wide {
+  width: min(1400px, 92vw);
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+}
+@media (max-width: 900px) {
+  .workspace-wide { width: 100%; left: auto; transform: none; }
+}

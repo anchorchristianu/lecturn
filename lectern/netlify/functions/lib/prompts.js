@@ -590,8 +590,8 @@ function reviewNotes({ brief, voiceSample, chapter, currentDraft }) {
   const title = typeof chapter === "string" ? chapter : (chapter?.chapter || "this chapter");
   const system = projectContext({ brief, voiceSample }) +
     `\n\nYou are leaving an author editorial notes on a single chapter they've written or brought in — the kind of margin notes a good editor gives. Read the chapter as it stands and surface what's genuinely worth their attention: what's strong and should stay, what's thin, unclear, or unsupported, where it drags or rushes, where a claim wants an example or evidence, where the voice wobbles, what to cut or expand, and anything the chapter promises but doesn't deliver. Reference specific moments. These are NOTES, not edits — do not rewrite, line-edit, or invent content, and don't restate the chapter back. Be warm but candid; a handful of real, specific notes beats a long vague list.`;
-  const user = `Chapter: "${title}".\n\nThe chapter as it stands:\n"""\n${currentDraft || "(empty)"}\n"""\n\nReturn ONLY valid JSON:\n{ "notes": ["a short, specific editorial note", "another note"] }`;
-  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 1500, json: true };
+  const user = `Chapter: "${title}".\n\nThe chapter as it stands:\n"""\n${currentDraft || "(empty)"}\n"""\n\nReturn ONLY valid JSON:\n{ "notes": [ { "anchor": "a short EXACT quote (4–12 words) copied verbatim from the chapter text that this note is about — or an empty string if the note is about the chapter as a whole", "note": "the editorial note" } ] }\n\nThe anchor must be copied exactly from the chapter above (same words, same order) so it can be located in the text. Prefer anchoring each note to the specific passage it concerns.`;
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 2000, json: true };
 }
 
 // Research a point on the OPEN WEB for credible, citable sources. Uses the

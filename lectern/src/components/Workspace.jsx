@@ -817,7 +817,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                   <button className="btn btn-ghost" onClick={() => interview(c)} disabled={working}>
                     {busy.id === c.chapter ? <Spin>Thinking…</Spin> : "Interview me on this →"}
                   </button>
-                  <button className="btn btn-ghost" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Write this →</button>
+                  <button className="btn btn-secondary" onClick={() => { setSelectedChapter(c.chapter); setTab("write"); }} disabled={working}>Write this →</button>
                 </div>
               </div>
             )
@@ -926,13 +926,22 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                   </div>
                 </div>
               ) : !currentDraft ? (
-                <div className="card center stack">
-                  <p className="muted" style={{ margin: 0 }}>No draft yet for this chapter.</p>
-                  <div className="row" style={{ justifyContent: "center" }}>
-                    <button className="btn btn-primary btn-lg" onClick={draftChapter} disabled={working}>
-                      {working ? <Spin>{busy.label}…</Spin> : "Draft this chapter in your voice"}
-                    </button>
-                    <button className="btn btn-secondary btn-lg" onClick={startBlank} disabled={working}>Write it myself</button>
+                <div className="card stack">
+                  <div>
+                    <h3 style={{ margin: 0 }}>Start "{chapterObj.chapter}"</h3>
+                    <span className="hint">Two ways to begin — you can always switch later, and the coach is here either way.</span>
+                  </div>
+                  <div className="write-start">
+                    <div className="start-option">
+                      <button className="btn btn-primary btn-lg" style={{ width: "100%" }} onClick={draftChapter} disabled={working}>
+                        {working ? <Spin>{busy.label}…</Spin> : `Draft it in ${authorName(chapterObj.authorId || ownerId)}'s voice`}
+                      </button>
+                      <span className="hint">The coach drafts from your filed material and leaves a visible [GAP] note wherever it needs more from you.</span>
+                    </div>
+                    <div className="start-option">
+                      <button className="btn btn-secondary btn-lg" style={{ width: "100%" }} onClick={startBlank} disabled={working}>Write it from scratch</button>
+                      <span className="hint">Start with a blank page and type it yourself. You can bring in the coach whenever you want a hand.</span>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1010,7 +1019,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       <button className="btn btn-primary" onClick={reviseChapter} disabled={working || !feedback.trim()}>
                         {working && busy.label === "Revising" ? <Spin>Revising…</Spin> : "Revise"}
                       </button>
-                      <button className="btn btn-ghost" onClick={draftChapter} disabled={working}>Re-draft from scratch</button>
+                      <button className="btn btn-ghost" onClick={draftChapter} disabled={working}>Re-draft this chapter</button>
                     </div>
                   </div>
 

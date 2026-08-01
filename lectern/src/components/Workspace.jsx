@@ -389,6 +389,26 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
     const id = newFootnoteId();
     setEditText((t) => insertAt(t, pos, id));
   }
+  // Drop an EXISTING (unplaced) footnote's marker at the cursor while editing.
+  function placeFootnoteAtCursor(id) {
+    const pos = editorRef.current ? editorRef.current.selectionStart : editText.length;
+    setEditText((t) => insertAt(t, pos, id));
+  }
+  // Ask the coach where a citation belongs, then place its marker there.
+  async function suggestPlacement(footnote) {
+    if (!currentDraft) return;
+    await run("Finding the spot", async () => {
+      const r = await ai("place_citation", { draft: currentDraft.text, claim: footnote.claim, source: footnote.source });
+      const anchor = (r.anchor || "").trim();
+      const placed = anchor ? insertAfterAnchor(currentDraft.text, anchor, footnote.id) : null;
+      if (placed) {
+        const resp = await post({ op: "saveDraft", draft: { ...currentDraft, text: placed } });
+        if (resp?.draft) onSaved?.(resp.draft); else await onReload();
+      } else {
+        setErr("I couldn't confidently find a spot for that citation. Open \u201cEdit directly,\u201d put your cursor where it belongs, and use \u201cInsert at cursor.\u201d");
+      }
+    });
+  }
 
   // ---- footnotes / sources ----
   async function saveDraftObj(draft) {
@@ -1007,6 +1027,17 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                     Type your changes directly. Paragraphs are separated by a blank line; <code>## </code> starts a heading.
                     Replace a <span className="gap">[GAP: …]</span> by writing the missing piece and deleting the marker.
                   </span>
+                  {(currentDraft?.footnotes || []).filter((f) => !editText.includes(`[^${f.id}]`)).length > 0 && (
+                    <div className="unplaced-strip">
+                      <span className="hint" style={{ display: "block", marginBottom: "0.4rem" }}>Unplaced sources — put your cursor where each belongs, then insert its marker:</span>
+                      {(currentDraft.footnotes || []).filter((f) => !editText.includes(`[^${f.id}]`)).map((f) => (
+                        <div className="unplaced-row" key={f.id}>
+                          <span className="unplaced-src">{f.source ? (f.source.length > 80 ? f.source.slice(0, 80) + "…" : f.source) : <em className="muted">source not added yet</em>}</span>
+                          <button className="btn btn-secondary" style={{ padding: "0.2rem 0.65rem", fontSize: "0.82rem", whiteSpace: "nowrap" }} onClick={() => placeFootnoteAtCursor(f.id)} disabled={working}>Insert at cursor</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="row">
                     <button className="btn btn-primary" onClick={saveEdit} disabled={working}>
                       {working ? <Spin>Saving…</Spin> : "Save edits"}
@@ -1083,6 +1114,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                     onUpdate={updateFootnote}
                     onRemove={removeFootnote}
                     onFormat={formatChicago}
+                    onSuggestPlace={suggestPlacement}
                   />
 
                   {(currentDraft.flags || []).length > 0 && (

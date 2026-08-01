@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Spin from "./Spin.jsx";
 
-function NoteRow({ note, label, working, onUpdate, onRemove, onFormat }) {
+function NoteRow({ note, label, placed, working, onUpdate, onRemove, onFormat, onSuggestPlace }) {
   const [val, setVal] = useState(note.source || "");
   const [busy, setBusy] = useState(false);
   const dirty = val !== (note.source || "");
@@ -24,6 +24,9 @@ function NoteRow({ note, label, working, onUpdate, onRemove, onFormat }) {
         <span className="status">{label}</span>
         {note.claim && <span className="muted" style={{ fontSize: "0.8rem" }}>on: "{note.claim.slice(0, 60)}{note.claim.length > 60 ? "…" : ""}"</span>}
         <span className="spacer" />
+        {!placed && onSuggestPlace && (
+          <button className="btn btn-ghost" style={{ padding: "0.2rem 0.6rem", fontSize: "0.82rem" }} onClick={() => onSuggestPlace(note)} disabled={working || !val.trim()}>Suggest placement</button>
+        )}
         <button className="btn btn-ghost" style={{ padding: "0.2rem 0.6rem", fontSize: "0.82rem" }} onClick={() => onRemove(note.id)} disabled={working}>Remove</button>
       </div>
       <textarea
@@ -46,23 +49,25 @@ function NoteRow({ note, label, working, onUpdate, onRemove, onFormat }) {
   );
 }
 
-export default function Footnotes({ footnotes, nums, working, onUpdate, onRemove, onFormat }) {
+export default function Footnotes({ footnotes, nums, working, onUpdate, onRemove, onFormat, onSuggestPlace }) {
   if (!footnotes || footnotes.length === 0) return null;
   return (
     <div className="card stack">
       <div>
         <h3 style={{ margin: "0 0 0.2rem" }}>Notes &amp; sources ({footnotes.length})</h3>
-        <span className="hint">Each note follows a marker in the text. Add the source, optionally clean it into Chicago style, and it appears in the chapter's Notes.</span>
+        <span className="hint">Each note follows a marker in the text. Add the source, optionally clean it into Chicago style, and it appears in the chapter's Notes. For an unplaced source, use <b>Suggest placement</b>, or place its marker by hand in <b>Edit directly</b>.</span>
       </div>
       {footnotes.map((f) => (
         <NoteRow
           key={f.id}
           note={f}
           label={nums[f.id] ? `Note ${nums[f.id]}` : "Unplaced"}
+          placed={!!nums[f.id]}
           working={working}
           onUpdate={onUpdate}
           onRemove={onRemove}
           onFormat={onFormat}
+          onSuggestPlace={onSuggestPlace}
         />
       ))}
     </div>

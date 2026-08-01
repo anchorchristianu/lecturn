@@ -111,7 +111,24 @@ export function splitIntoChapters(md) {
     const body = lines.slice(start + 1, end).join("\n").trim();
     chapters.push({ title, text: body });
   }
-  return chapters.filter((c) => (c.text && c.text.trim()) || c.title);
+  return promoteSubtitles(chapters).filter((c) => (c.text && c.text.trim()) || c.title);
+}
+
+// A very common manuscript pattern is a bare "# Chapter N" heading followed by
+// the real chapter title as a sub-heading ("## The Church Has Always Been…").
+// When the detected title is just a chapter marker, promote that following
+// heading to the title and drop it from the body.
+function promoteSubtitles(chapters) {
+  const bareMarker = /^(chapter|part|section)\s+[\w-]+[.:)]?$/i;
+  return chapters.map((c) => {
+    if (!bareMarker.test((c.title || "").trim())) return c;
+    const bl = c.text.split("\n");
+    let i = 0;
+    while (i < bl.length && !bl[i].trim()) i++;
+    const m = bl[i] && bl[i].match(/^#{1,6}\s+(.+?)\s*$/);
+    if (!m) return c;
+    return { title: m[1].trim(), text: bl.slice(i + 1).join("\n").trim() };
+  });
 }
 
 // Read an uploaded manuscript into { title, chapters, voiceSample }.

@@ -1001,7 +1001,12 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       </button>
                     </div>
                     {currentDraft.notes?.length > 0
-                      ? <ul className="note-list">{currentDraft.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+                      ? <ul className="note-list">{currentDraft.notes.map((n, i) => (
+                          <li key={i}>
+                            <span>{n}</span>
+                            <button className="note-discuss" onClick={() => setCoachSeed({ text: n, nonce: Date.now() })} disabled={working}>Discuss with the coach →</button>
+                          </li>
+                        ))}</ul>
                       : <p className="muted" style={{ margin: 0, fontSize: "0.9rem" }}>No notes yet — run a review to get editorial notes on this chapter's text.</p>}
                   </div>
 
@@ -1021,7 +1026,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       <DraftView
                         text={currentDraft.text}
                         footnotes={currentDraft.footnotes}
-                        onGapClick={(marker) => setCoachSeed({ marker, nonce: Date.now() })}
+                        onGapClick={(marker) => setCoachSeed({ text: marker.replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim(), marker, nonce: Date.now() })}
                       />
                     </div>
                     <CoachPane

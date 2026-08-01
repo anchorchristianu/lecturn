@@ -43,13 +43,13 @@ export default function CoachPane({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, streaming, busy]);
 
-  // React to a gap being clicked in the draft (parent bumps seed.nonce).
+  // React to a gap or an editor's note being sent over (parent bumps seed.nonce).
   useEffect(() => {
     if (seed && seed.nonce && seed.nonce !== lastSeed.current && !busy) {
       lastSeed.current = seed.nonce;
-      const inner = String(seed.marker || "").replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim();
-      setActiveGap(seed.marker);
-      send(`Let's work on this editor's note:\n\n"${inner}"\n\nHelp me figure out what to write — ask me what you need to know.`);
+      const topic = seed.text || String(seed.marker || "").replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim();
+      setActiveGap(seed.marker || null);
+      send(`Let's work on this editor's note:\n\n"${topic}"\n\nHelp me figure out what to do about it — ask me what you need to know.`);
     }
   }, [seed, busy]); // eslint-disable-line react-hooks/exhaustive-deps
 

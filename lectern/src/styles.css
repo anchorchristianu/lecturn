@@ -358,3 +358,7 @@ button { font-family: var(--ui); cursor: pointer; }
 .unplaced-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.3rem 0; }
 .unplaced-row + .unplaced-row { border-top: 1px solid var(--line); }
 .unplaced-src { flex: 1; font-size: 0.85rem; color: var(--ink); }
+
+/* ---- Coach draft passage: added confirmation ---- */
+.coach-draftblock.added { opacity: 0.72; }
+.coach-added { margin-top: 0.55rem; font-family: var(--ui); font-size: 0.85rem; font-weight: 600; color: var(--pine); }

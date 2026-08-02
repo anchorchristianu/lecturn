@@ -21,6 +21,7 @@ export default function CoachPane({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [activeGap, setActiveGap] = useState(null);
+  const [added, setAdded] = useState(() => new Set());
   const scrollRef = useRef(null);
   const taRef = useRef(null);
   const lastSeed = useRef(null);
@@ -28,7 +29,7 @@ export default function CoachPane({
   // Load the saved thread whenever the chapter changes.
   useEffect(() => {
     let alive = true;
-    setErr(""); setStreaming(""); setActiveGap(null); setMessages([]);
+    setErr(""); setStreaming(""); setActiveGap(null); setMessages([]); setAdded(new Set());
     (async () => {
       try {
         const r = await post({ op: "getThread", projectId, chapter });
@@ -92,6 +93,15 @@ export default function CoachPane({
     if (!onInsert || working) return;
     await onInsert(passage, activeGap);
     setActiveGap(null);
+    setAdded((s) => { const n = new Set(s); n.add(passage); return n; });
+  }
+
+  // A passage counts as added once it's in the draft (survives reloads) or was
+  // just inserted this session.
+  const normText = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  function isAdded(passage) {
+    if (added.has(passage)) return true;
+    return !!draft && normText(draft).includes(normText(passage));
   }
 
   const empty = messages.length === 0 && !busy && !streaming;
@@ -121,13 +131,15 @@ export default function CoachPane({
               {prose && <div className="coach-msg a">{prose}</div>}
               {passage && (
                 <div className="coach-msg a">
-                  <div className="coach-draftblock">
+                  <div className={"coach-draftblock" + (isAdded(passage) ? " added" : "")}>
                     <div className="dh">Draft passage · in {authorName || "your"} voice</div>
                     <div className="dt">{passage}</div>
-                    <button className="btn btn-primary" style={{ marginTop: "0.55rem", padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}
-                      onClick={() => insert(passage)} disabled={working}>
-                      {activeGap ? "Use this in the draft" : "Add this to the draft"}
-                    </button>
+                    {isAdded(passage)
+                      ? <div className="coach-added">✓ Added to the draft</div>
+                      : <button className="btn btn-primary" style={{ marginTop: "0.55rem", padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}
+                          onClick={() => insert(passage)} disabled={working}>
+                          {activeGap ? "Use this in the draft" : "Add this to the draft"}
+                        </button>}
                   </div>
                 </div>
               )}

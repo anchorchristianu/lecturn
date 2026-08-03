@@ -4,6 +4,7 @@ import Collaborators from "./Collaborators.jsx";
 import DraftView from "./DraftView.jsx";
 import CoachPane from "./CoachPane.jsx";
 import ResearchPanel from "./ResearchPanel.jsx";
+import SubheadPanel from "./SubheadPanel.jsx";
 import DevReview from "./DevReview.jsx";
 import EditPass from "./EditPass.jsx";
 import Footnotes from "./Footnotes.jsx";
@@ -67,6 +68,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
   const [preview, setPreview] = useState(""); // live text while a chapter streams
   const [coachSeed, setCoachSeed] = useState(null); // {marker, nonce} when a gap is clicked to discuss
   const [research, setResearch] = useState(null); // { query } when the research panel is open
+  const [subheads, setSubheads] = useState(null); // suggested subheadings when the panel is open
   const [reshapeNote, setReshapeNote] = useState(""); // author's direction for reshaping the outline
   const [proposal, setProposal] = useState(null);     // { outline, gaps } awaiting accept/reject
   const [editOutline, setEditOutline] = useState(false); // hand-edit mode for the outline
@@ -338,6 +340,29 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
     } catch (e) { setErr(String(e.message || e)); await onReload(); }
   }
 
+  // Suggest subheadings for the current chapter, then let the author place them.
+  async function suggestSubheads() {
+    if (!currentDraft) return;
+    await run("Suggesting subheadings", async () => {
+      const r = await ai("suggest_subheads", { ...chapterCtx(chapterObj), chapter: chapterObj, currentDraft: currentDraft.text });
+      setSubheads((r.subheads || []).filter((s) => s && s.heading));
+    });
+  }
+  const subheadBlock = (s) => "## " + String(s.heading || "").replace(/^#+\s*/, "").trim();
+  async function insertSubhead(s) {
+    if (!currentDraft || !s) return;
+    const text = insertBlockAtAnchor(currentDraft.text, s.anchor, subheadBlock(s), true);
+    await saveDraftObj({ ...currentDraft, text });
+    setSubheads((list) => (list || []).filter((x) => x !== s));
+  }
+  async function insertAllSubheads() {
+    if (!currentDraft || !subheads?.length) return;
+    let text = currentDraft.text;
+    for (const s of subheads) text = insertBlockAtAnchor(text, s.anchor, subheadBlock(s), true);
+    await saveDraftObj({ ...currentDraft, text });
+    setSubheads(null);
+  }
+
   // ---- soft per-chapter lock helpers ----
   const lockChapter = (chapter) => post({ op: "lockChapter", projectId: project.id, chapter });
   const unlockChapter = (chapter) => post({ op: "unlockChapter", projectId: project.id, chapter }).catch(() => {});
@@ -412,18 +437,45 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
 
   // ---- footnotes / sources ----
   async function saveDraftObj(draft) {
-    await post({ op: "saveDraft", draft });
-    await onReload();
+    const resp = await post({ op: "saveDraft", draft });
+    if (resp?.draft) onSaved?.(resp.draft);
+    else await onReload();
+  }
+
+  // Locate a paragraph by a verbatim anchor quote and insert a block before or
+  // after it. Punctuation/quote/markdown tolerant; appends on a miss.
+  function normAnchor(s) {
+    return String(s || "")
+      .replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'")
+      .toLowerCase()
+      .replace(/[*_`#>()"'.,;:!?\u2014\u2013-]/g, " ")
+      .replace(/\s+/g, " ").trim();
+  }
+  function insertBlockAtAnchor(text, anchor, block, before) {
+    const a = normAnchor(anchor);
+    const blocks = String(text || "").split(/\n{2,}/);
+    let bi = a ? blocks.findIndex((b) => normAnchor(b).includes(a)) : -1;
+    if (bi === -1 && a) {
+      const short = a.split(" ").slice(0, 6).join(" ");
+      if (short.length > 12) bi = blocks.findIndex((b) => normAnchor(b).includes(short));
+    }
+    if (bi === -1) return String(text || "").trimEnd() + "\n\n" + block; // fallback: append
+    const at = before ? bi : bi + 1;
+    return [...blocks.slice(0, at), block, ...blocks.slice(at)].join("\n\n");
   }
   // Insert a passage the author accepted from the coach. If it came from a
   // specific [GAP: …] marker, replace that marker in place; otherwise append.
   // Nothing is written unless the author clicked to accept it.
-  async function insertCoachPassage(passage, gapMarker) {
+  async function insertCoachPassage(passage, gapMarker, anchor) {
     if (!currentDraft || !passage) return;
     let text = currentDraft.text || "";
-    text = (gapMarker && text.includes(gapMarker))
-      ? text.replace(gapMarker, passage)
-      : (text.trimEnd() + "\n\n" + passage);
+    if (gapMarker && text.includes(gapMarker)) {
+      text = text.replace(gapMarker, passage);          // fill a [GAP: …]
+    } else if (anchor && anchor.trim()) {
+      text = insertBlockAtAnchor(text, anchor, passage, false); // after the note's passage
+    } else {
+      text = text.trimEnd() + "\n\n" + passage;         // no target: append
+    }
     await saveDraftObj({ ...currentDraft, text });
   }
   async function formatChicago(raw) {
@@ -1081,6 +1133,9 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                         <button className="btn btn-secondary" onClick={reviewChapter} disabled={working}>
                           {working && busy.label === "Reviewing" ? <Spin>Reviewing…</Spin> : (currentDraft.notes?.length ? "Refresh notes" : "Get editor's notes")}
                         </button>
+                        <button className="btn btn-secondary" onClick={suggestSubheads} disabled={working}>
+                          {working && busy.label === "Suggesting subheadings" ? <Spin>Thinking…</Spin> : "Suggest subheadings"}
+                        </button>
                         <button className="btn btn-secondary" onClick={startEdit} disabled={working}>✎ Edit directly</button>
                       </div>
                       <DraftView
@@ -1088,7 +1143,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                         footnotes={currentDraft.footnotes}
                         notes={currentDraft.notes}
                         onGapClick={(marker) => setCoachSeed({ text: marker.replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim(), marker, nonce: Date.now() })}
-                        onDiscussNote={(t) => setCoachSeed({ text: t, nonce: Date.now() })}
+                        onDiscussNote={(note) => setCoachSeed({ text: note.note, anchor: note.anchor || "", nonce: Date.now() })}
                         onResearchNote={(t) => setResearch({ query: t })}
                         onResolveNote={resolveNote}
                       />
@@ -1289,6 +1344,15 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
       })()}
 
       {adding && <AddSource onSave={addSource} onClose={() => setAdding(false)} working={working} busyLabel={busy.label} />}
+      {subheads && (
+        <SubheadPanel
+          subheads={subheads}
+          working={working}
+          onInsert={insertSubhead}
+          onInsertAll={insertAllSubheads}
+          onClose={() => setSubheads(null)}
+        />
+      )}
       {research && (
         <ResearchPanel
           query={research.query}

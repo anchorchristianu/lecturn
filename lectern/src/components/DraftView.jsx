@@ -76,7 +76,7 @@ export default function DraftView({ text, footnotes, notes, onGapClick, onDiscus
       <div className="inline-note">
         <p className="inline-note-text">{n.note}</p>
         <div className="note-actions">
-          {onDiscussNote && <button className="note-discuss" onClick={() => onDiscussNote(n.note)}>Discuss with the coach →</button>}
+          {onDiscussNote && <button className="note-discuss" onClick={() => onDiscussNote(n)}>Discuss with the coach →</button>}
           {onResearchNote && <button className="note-discuss" onClick={() => onResearchNote(n.note)}>Find sources →</button>}
           {onResolveNote && <button className="note-discuss note-resolve" onClick={() => onResolveNote(n, true)}>✓ Resolve</button>}
         </div>

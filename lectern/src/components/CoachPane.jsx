@@ -21,6 +21,7 @@ export default function CoachPane({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [activeGap, setActiveGap] = useState(null);
+  const [insertAnchor, setInsertAnchor] = useState(null);
   const [added, setAdded] = useState(() => new Set());
   const scrollRef = useRef(null);
   const taRef = useRef(null);
@@ -29,7 +30,7 @@ export default function CoachPane({
   // Load the saved thread whenever the chapter changes.
   useEffect(() => {
     let alive = true;
-    setErr(""); setStreaming(""); setActiveGap(null); setMessages([]); setAdded(new Set());
+    setErr(""); setStreaming(""); setActiveGap(null); setInsertAnchor(null); setMessages([]); setAdded(new Set());
     (async () => {
       try {
         const r = await post({ op: "getThread", projectId, chapter });
@@ -50,6 +51,7 @@ export default function CoachPane({
       lastSeed.current = seed.nonce;
       const topic = seed.text || String(seed.marker || "").replace(/^\[GAP:\s*/, "").replace(/\]$/, "").trim();
       setActiveGap(seed.marker || null);
+      setInsertAnchor(seed.anchor || null);
       send(`Let's work on this editor's note:\n\n"${topic}"\n\nHelp me figure out what to do about it — ask me what you need to know.`);
     }
   }, [seed, busy]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -91,8 +93,9 @@ export default function CoachPane({
 
   async function insert(passage) {
     if (!onInsert || working) return;
-    await onInsert(passage, activeGap);
+    await onInsert(passage, activeGap, insertAnchor);
     setActiveGap(null);
+    setInsertAnchor(null);
     setAdded((s) => { const n = new Set(s); n.add(passage); return n; });
   }
 

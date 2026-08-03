@@ -74,6 +74,7 @@ export default function ResearchPanel({ query, brief, chapterTitle, onAddSource,
                     ? <span className="status ready">added ✓</span>
                     : <button className="btn btn-secondary" onClick={() => add(s, i)} disabled={working}>Add as citation</button>}
                 </div>
+                {s.keyPoints && <p className="rs-line"><b>Says:</b> {s.keyPoints}</p>}
                 {s.supports && <p className="rs-line"><b>Supports:</b> {s.supports}</p>}
                 {s.credibility && <p className="rs-line"><b>Why trust it:</b> {s.credibility}</p>}
                 {s.citation && <p className="rs-cite">{s.citation}</p>}

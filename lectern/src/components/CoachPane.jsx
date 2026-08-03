@@ -13,7 +13,7 @@ function splitDraft(text) {
 // per-user key + usage), persists the thread per chapter, and never inserts
 // anything into the draft on its own — the author clicks to accept a passage.
 export default function CoachPane({
-  projectId, chapter, authorName, brief, voiceSample, draft, notes, working, onInsert, seed,
+  projectId, chapter, authorName, brief, voiceSample, draft, notes, footnotes, working, onInsert, seed,
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -70,7 +70,9 @@ export default function CoachPane({
     try {
       const r = await ai(
         "discuss",
-        { chapter, authorName, brief, voiceSample, draft, notes, messages: next.slice(-24) },
+        { chapter, authorName, brief, voiceSample, draft, notes,
+          sources: (footnotes || []).filter((f) => f && (f.content || f.source)).map((f) => ({ citation: f.source || "", content: f.content || "", claim: f.claim || "" })),
+          messages: next.slice(-24) },
         (partial) => setStreaming(typeof partial === "string" ? partial : "")
       );
       const reply = (r && typeof r.text === "string" && r.text.trim())

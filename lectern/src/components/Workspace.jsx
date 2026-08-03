@@ -499,7 +499,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
         const raw = [source.author, source.title, source.publisher, source.date, source.url].filter(Boolean).join(". ");
         citation = await formatChicago(raw);
       }
-      const footnotes = [...(currentDraft.footnotes || []), { id, source: citation, claim: source.supports || source.title || "" }];
+      const footnotes = [...(currentDraft.footnotes || []), { id, source: citation, claim: source.supports || source.title || "", content: source.keyPoints || "" }];
       const resp = await post({ op: "saveDraft", draft: { ...currentDraft, footnotes } });
       if (resp?.draft) onSaved?.(resp.draft);
       else await onReload();
@@ -1157,6 +1157,7 @@ export default function Workspace({ project, sources, drafts, user, initialTab, 
                       voiceSample={voiceFor(chapterObj)}
                       draft={currentDraft.text}
                       notes={(currentDraft.notes || []).map((n) => (typeof n === "string" ? n : n.note || n.text || "")).filter(Boolean)}
+                      footnotes={currentDraft.footnotes || []}
                       working={working}
                       onInsert={insertCoachPassage}
                       seed={coachSeed}

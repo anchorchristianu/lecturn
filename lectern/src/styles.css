@@ -362,3 +362,8 @@ button { font-family: var(--ui); cursor: pointer; }
 /* ---- Coach draft passage: added confirmation ---- */
 .coach-draftblock.added { opacity: 0.72; }
 .coach-added { margin-top: 0.55rem; font-family: var(--ui); font-size: 0.85rem; font-weight: 600; color: var(--pine); }
+
+/* ---- Suggested subheadings ---- */
+.subhead-row { display: flex; align-items: center; gap: 0.8rem; border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.8rem; }
+.subhead-h { font-family: var(--display); font-size: 1.05rem; }
+.subhead-anchor { color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }

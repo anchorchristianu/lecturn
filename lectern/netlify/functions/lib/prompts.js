@@ -627,6 +627,15 @@ function placeCitation({ draft, claim, source }) {
   return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 400, json: true };
 }
 
+// Suggest subheadings to give a drafted chapter structure and readability.
+function suggestSubheads({ brief, voiceSample, chapter, currentDraft }) {
+  const title = typeof chapter === "string" ? chapter : (chapter?.chapter || "this chapter");
+  const system = projectContext({ brief, voiceSample }) +
+    `\n\nYou suggest subheadings that give a chapter structure and make it easier to read. Read the chapter and propose a small number of subheadings (usually 2–5 for a chapter of this length) that mark its natural sections. Each subheading is short (2–6 words), in the author's plain voice, and names what that section is actually about — not a generic label. Do NOT rewrite the text. Skip the very opening of the chapter (the first section rarely needs a heading). For each subheading, give an anchor: a short EXACT quote copied verbatim from the FIRST paragraph of the section it introduces, so it can be placed just before that paragraph.`;
+  const user = `Chapter: "${title}".\n\nChapter text:\n"""\n${currentDraft || ""}\n"""\n\nReturn ONLY valid JSON:\n{ "subheads": [ { "anchor": "exact quote from the first paragraph under this subheading", "heading": "the subheading text" } ] }`;
+  return { system, messages: [{ role: "user", content: user }], model: "main", maxTokens: 1200, json: true };
+}
+
 export const ACTIONS = {
   intake_summary: (p) => intakeSummary(p.intake),
   sort: (p) => sortSource(p),
@@ -645,4 +654,5 @@ export const ACTIONS = {
   review_notes: (p) => reviewNotes(p),
   research: (p) => research(p),
   place_citation: (p) => placeCitation(p),
+  suggest_subheads: (p) => suggestSubheads(p),
 };

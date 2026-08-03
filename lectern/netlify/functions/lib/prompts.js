@@ -527,12 +527,15 @@ Write the launch kit. Return ONLY valid JSON in this shape:
 // the author and help shape it in their voice; it must never invent facts,
 // stats, quotes, or anecdotes. When the author has given enough, it offers a
 // finished passage wrapped in ⟦DRAFT⟧…⟦/DRAFT⟧ that the client can insert.
-function discuss({ chapter, brief, voiceSample, draft, notes, messages, authorName }) {
+function discuss({ chapter, brief, voiceSample, draft, notes, messages, authorName, sources }) {
   const chapterTitle = typeof chapter === "string" ? chapter : (chapter?.chapter || "this chapter");
   const who = authorName || "the author";
   const editorNotes = Array.isArray(notes) && notes.length
     ? notes.map((n) => `- ${n}`).join("\n")
     : "(none recorded)";
+  const sourceList = Array.isArray(sources) && sources.length
+    ? sources.map((s) => `- ${s.citation || "(source)"}${s.content ? `\n  Says: ${s.content}` : ""}`).join("\n")
+    : "(none filed yet)";
 
   const system = `You are the writing coach built into Lectern, a tool that helps an author turn their OWN spoken material into a book. You are working with ${who} on a single chapter. You are an editor and coach — never the author.
 
@@ -554,9 +557,13 @@ ${draft || "(no draft yet for this chapter)"}
 # Editor's notes still open on this chapter
 ${editorNotes}
 
+# Sources on file for this chapter
+The author has researched and filed these sources. The "Says" line is what each source actually reports — real, citable material the author can use. When they ask you to write or strengthen a passage with one of these, you MAY build from what that source says: attribute it to the source and stay strictly within what it says. Do NOT go beyond the source or add specifics it doesn't contain.
+${sourceList}
+
 # Your rules — these are absolute
-1. NEVER invent facts, statistics, study findings, figures, quotes, dates, or anecdotes — not even plausible-sounding ones. You do not have ${who}'s memories; only they do. If a point needs a number or a story they haven't given you, you may NOT manufacture it.
-2. You cannot browse the web. If they ask you to "find statistics" or "find real stories to cite," say so plainly, then help: name the specific, credible kinds of sources worth checking for this topic, say what to search for, and offer to leave a clearly-marked [GAP: exactly what to find and cite] placeholder so nothing unverified slips into the book. Never fabricate a citation. (A later version of Lectern will fetch real, citable sources here for them to verify.)
+1. NEVER invent facts, statistics, study findings, figures, quotes, dates, or anecdotes — not even plausible-sounding ones. You do not have ${who}'s memories; only they do. If a point needs a number or a story they haven't given you, you may NOT manufacture it. (The one exception: material from a filed source above, used within what that source actually says.)
+2. You cannot browse the web yourself, but the author can research and file real sources — any filed sources appear under "Sources on file" above, with what each says. If a filed source fits what they're writing, use what it actually says (attributed, within its bounds). If they need evidence that isn't on file and you don't have it, do NOT fabricate: name the specific, credible kinds of sources worth checking, tell them they can use "Find sources" on an editor's note to pull real ones in, and offer a clearly-marked [GAP: exactly what to find and cite] placeholder so nothing unverified slips into the book.
 3. Preserve ${who}'s voice. Any sentence you propose must be built ONLY from what they have actually told you, and must sound like them — not like an AI.
 4. Draw material OUT of them. Prefer one good, specific question over a paragraph of advice. Ask ONE question at a time. Reflect back what they give you and help shape it.
 
@@ -600,12 +607,12 @@ function research({ topic, brief, chapterTitle }) {
   const system =
     `You are a meticulous research librarian helping an author find CREDIBLE, CITABLE sources on the open web to support a specific point in their book. Use the web_search tool to actually search — do not rely on memory.\n\n` +
     `Return ONLY sources you genuinely found in the search results. NEVER invent or guess a title, author, publisher, date, or URL — a fabricated citation is far worse than none. If nothing solid turns up, return an empty list and say so.\n\n` +
-    `Prefer authoritative, verifiable sources: books, peer-reviewed or scholarly work, primary and official documents, reputable news and reference works, and recognized experts. Avoid content farms, SEO blogs, and anything you can't stand behind. For each source, say briefly how it supports the point and why it's trustworthy, and format a Chicago Manual of Style NOTE (footnote form) from only the details you actually have.`;
+    `Prefer authoritative, verifiable sources: books, peer-reviewed or scholarly work, primary and official documents, reputable news and reference works, and recognized experts. Avoid content farms, SEO blogs, and anything you can't stand behind. For each source, say briefly how it supports the point and why it's trustworthy, capture what it actually SAYS that's relevant (a short paraphrase of the specific facts, findings, arguments, or data the author could cite — grounded in the search results, never invented, and keep any direct quote under 15 words), and format a Chicago Manual of Style NOTE (footnote form) from only the details you actually have.`;
   const ctx = [brief ? `Book: ${brief}` : "", chapterTitle ? `Chapter: ${chapterTitle}` : ""].filter(Boolean).join("\n");
   const user =
     `${ctx ? ctx + "\n\n" : ""}Point to support / research question:\n"""${String(topic || "").slice(0, 1200)}"""\n\n` +
     `Search the web, then return ONLY valid JSON — no prose before or after:\n` +
-    `{\n  "sources": [\n    { "title": "", "author": "", "publisher": "", "date": "", "url": "", "supports": "how this source supports the point", "credibility": "why it can be trusted", "citation": "the source as a Chicago note" }\n  ],\n  "note": "one sentence on what you found — or what to try if nothing solid turned up"\n}`;
+    `{\n  "sources": [\n    { "title": "", "author": "", "publisher": "", "date": "", "url": "", "supports": "how this source supports the point", "keyPoints": "what the source actually says that's relevant, in 2-4 sentences (paraphrased from the search results, never invented; quotes under 15 words)", "credibility": "why it can be trusted", "citation": "the source as a Chicago note" }\n  ],\n  "note": "one sentence on what you found — or what to try if nothing solid turned up"\n}`;
   return {
     system,
     messages: [{ role: "user", content: user }],

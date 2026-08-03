@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import StageRail from "./StageRail.jsx";
 import Collaborators from "./Collaborators.jsx";
 import DraftView from "./DraftView.jsx";
@@ -1434,7 +1435,7 @@ function AddSource({ onSave, onClose, working, busyLabel }) {
 
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
 
-  return (
+  return createPortal(
     <div className="scrim" onClick={() => !working && !extracting && onClose()}>
       <div className="modal stack" onClick={(e) => e.stopPropagation()}>
         <h2>Add material</h2>
@@ -1472,6 +1473,7 @@ function AddSource({ onSave, onClose, working, busyLabel }) {
           <button className="btn btn-ghost" onClick={onClose} disabled={working || !!extracting}>Cancel</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,7 +1,9 @@
 // Review and insert AI-suggested subheadings. Each drops in just before the
 // section it names; nothing is applied until the author clicks.
+import { createPortal } from "react-dom";
+
 export default function SubheadPanel({ subheads, working, onInsert, onInsertAll, onClose }) {
-  return (
+  return createPortal(
     <div className="scrim" onClick={() => !working && onClose()}>
       <div className="modal stack" style={{ maxWidth: 580 }} onClick={(e) => e.stopPropagation()}>
         <div className="row">
@@ -36,6 +38,7 @@ export default function SubheadPanel({ subheads, working, onInsert, onInsertAll,
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

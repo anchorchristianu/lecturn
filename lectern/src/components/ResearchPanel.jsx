@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ai } from "../api.js";
 
 // Web research for credible, citable sources. The author triggers the search
@@ -32,7 +33,7 @@ export default function ResearchPanel({ query, brief, chapterTitle, onAddSource,
     setAdded((a) => ({ ...a, [i]: true }));
   }
 
-  return (
+  return createPortal(
     <div className="scrim" onClick={() => !running && !working && onClose()}>
       <div className="modal stack research-modal" onClick={(e) => e.stopPropagation()}>
         <div className="row">
@@ -82,6 +83,7 @@ export default function ResearchPanel({ query, brief, chapterTitle, onAddSource,
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
